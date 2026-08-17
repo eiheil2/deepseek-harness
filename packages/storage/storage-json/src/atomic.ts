@@ -14,6 +14,7 @@
 import { open, rename, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { StorageError } from '@deepseek-ai/dsh-storage'
 
 /**
  * Durably replace `path` with `data`.
@@ -32,18 +33,46 @@ export async function writeAtomic(path: string, data: string): Promise<void> {
       await handle.close()
     }
     await rename(tmp, path)
-    await fsyncDirectory(dirname(path))
+    await fsyncDirectory(dirname(path), path)
   } catch (error) {
     await rm(tmp, { force: true })
+    // Windows: replacing a read-only target fails with a bare EPERM from
+    // rename (POSIX rename would succeed, and the target's read-only
+    // attribute dies with the replaced file). Classify so callers get a
+    // structured StorageError instead of a raw errno escaping the storage
+    // taxonomy.
+    if (error instanceof Error && 'code' in error
+      && (error.code === 'EPERM' || error.code === 'EACCES')) {
+      throw new StorageError('permission-denied', `cannot write "${path}": permission denied`, { cause: error })
+    }
     throw error
   }
 }
 
-/** fsync a POSIX directory so a just-renamed entry is crash-durable. */
+/**
+ * fsync a directory so a just-renamed entry is crash-durable.
+ * @param dirPath - the parent directory of the renamed entry.
+ * @param filePath - (win32 only) the renamed file inside the directory.
+ */
 /* v8 ignore start -- Windows rejects O_RDONLY directory opens; POSIX coverage exercises this. */
-async function fsyncDirectory(path: string): Promise<void> {
-  if (process.platform === 'win32') return
-  const handle = await open(path, 'r')
+async function fsyncDirectory(dirPath: string, filePath?: string | null): Promise<void> {
+  if (process.platform === 'win32') {
+    // Windows workaround: a read-only ("r") directory handle fsync fails with
+    // EPERM (verified on win32), so open the file read-write ("r+") instead —
+    // fsyncing a file within the directory forces NTFS to flush the directory
+    // entry. The file is freshly renamed here, so it exists and is writable by
+    // the caller.
+    if (filePath) {
+      const handle = await open(filePath, 'r+')
+      try {
+        await handle.sync()
+      } finally {
+        await handle.close()
+      }
+    }
+    return
+  }
+  const handle = await open(dirPath, 'r')
   try {
     await handle.sync()
   } finally {

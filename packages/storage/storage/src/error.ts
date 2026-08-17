@@ -12,6 +12,7 @@ export type StorageErrorCode =
   | 'version-mismatch'
   | 'malformed-medium'
   | 'closed'
+  | 'permission-denied'
 
 /**
  * Error thrown by the hub and by backend implementations. The `code` is the
