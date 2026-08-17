@@ -370,6 +370,14 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       const dispose = registered.get(entryName)
       if (dispose !== undefined) {
         registered.delete(entryName)
+        // Drop the per-package artifact-path and manifest caches when the entry
+        // unmounts, so a later remount of a rebuilt/republished package resolves
+        // and imports the CURRENT artifact instead of the stale one cached at
+        // first mount. Plugin-set changes then take effect on the entry's next
+        // mount rather than requiring a process restart; steady-state behavior
+        // is unchanged (the cache only needs to outlive a mounted entry).
+        artifactPath.delete(entryName)
+        manifests.delete(entryName)
         return dispose()
       }
       return undefined
