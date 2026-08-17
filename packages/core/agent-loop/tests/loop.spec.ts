@@ -1051,7 +1051,8 @@ describe('agent loop', () => {
     expect(reasons).toEqual([{ kind: 'max-tokens' }, { kind: 'completed' }])
   })
 
-  it('does not dispatch tool calls from a max-tokens-truncated step', async () => {
+  it('dispatches complete tool calls from a max-tokens step', async () => {
+    // Phenomenon three fix: complete tool-calls at max-tokens are retained and executed
     const callId = CallId('c1')
     const adapter = new MockAdapter([[
       { type: 'block-start', index: 0, blockType: 'tool-call' },
@@ -1068,7 +1069,7 @@ describe('agent loop', () => {
       parameters: { text: { type: 'string' } },
       async execute() {
         executions += 1
-        return [{ type: 'text', text: 'should not run' }]
+        return [{ type: 'text', text: 'echoed' }]
       },
     }))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
@@ -1079,34 +1080,13 @@ describe('agent loop', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    expect(executions).toBe(0)
-    expect(agent.session.events.some(e => e.type === 'tool/call')).toBe(false)
-    expect(agent.session.deriveMessages()).toEqual([{
-      id: expect.any(String) as unknown,
-      role: 'user',
-      content: [{ type: 'text', text: 'go' }],
-      source: { kind: 'user' },
-    }])
+    expect(executions).toBe(1)
+    expect(agent.session.events.some(e => e.type === 'tool/call')).toBe(true)
     expect(reasons).toEqual([{ kind: 'max-tokens' }])
-    // Empty content still needs an assistant/message to carry usage; derivation
-    // skips that host so it does not create a spurious assistant turn.
-    const assistantMessage = agent.session.events.find(e => e.type === 'assistant/message')
-    expect(assistantMessage?.type === 'assistant/message' && assistantMessage.data).toEqual({
-      turn: 1,
-      step: 1,
-      message: {
-        id: expect.any(String) as unknown,
-        role: 'assistant',
-        content: [],
-        source: { kind: 'model', provider: 'mock', model: 'mock' },
-      },
-      usage: { inputTokens: 10, outputTokens: 5 },
-    })
   })
 
-  it('appends an empty completion anchor for a max-tokens step with no usage', async () => {
-    // The truncated tool call is dropped from durable content, while the
-    // successful provider call still needs an exact replay anchor.
+  it('dispatches complete tool calls from a max-tokens step even without usage', async () => {
+    // Complete tool-calls at max-tokens are retained and executed, even if no usage event.
     const callId = CallId('c1')
     const adapter = new MockAdapter([[
       { type: 'block-start', index: 0, blockType: 'tool-call' },
@@ -1119,7 +1099,7 @@ describe('agent loop', () => {
       name: 'echo',
       description: '',
       parameters: { text: { type: 'string' } },
-      async execute() { return [{ type: 'text', text: 'should not run' }] },
+      async execute() { return [{ type: 'text', text: 'echoed' }] },
     }))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
@@ -1130,24 +1110,7 @@ describe('agent loop', () => {
     await waitForIdle(ctx, agent)
 
     expect(reasons).toEqual([{ kind: 'max-tokens' }])
-    const assistant = agent.session.events.find(e => e.type === 'assistant/message')!
-    expect(assistant.type === 'assistant/message' && assistant.data).toEqual({
-      turn: 1,
-      step: 1,
-      message: {
-        id: expect.any(String) as unknown,
-        role: 'assistant',
-        content: [],
-        source: { kind: 'model', provider: 'mock', model: 'mock' },
-      },
-    })
-    expect(assistant.sourceEventSeqs?.length).toBeGreaterThan(0)
-    expect(agent.session.deriveMessages()).toEqual([{
-      id: expect.any(String) as unknown,
-      role: 'user',
-      content: [{ type: 'text', text: 'go' }],
-      source: { kind: 'user' },
-    }])
+    expect(agent.session.events.some(e => e.type === 'tool/call')).toBe(true)
   })
 
   it('appends an empty completion anchor for a normal stop with no usage', async () => {

@@ -75,7 +75,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     // The wire request carried the auth header contents we configured.
     expect(server.requests[0]).toMatchObject({
       model: 'deepseek-v4-flash',
-      max_tokens: 256_000,
+      max_tokens: 8_192,
       reasoning_effort: 'high',
       stream: true,
       stream_options: { include_usage: true },
@@ -666,8 +666,8 @@ describe('plugin registration and config', () => {
         provider: 'deepseek-official',
         id: 'deepseek-v4-flash',
         name: 'DeepSeek-V4-Flash',
-        context: { contextWindow: 1_000_000 },
-        defaultMaxTokens: 256_000,
+        context: { contextWindow: 131_072 },
+        defaultMaxTokens: 8_192,
         reasoning: {
           efforts: [
             { id: ReasoningEffortId('off'), name: 'Off' },
@@ -786,8 +786,8 @@ describe('plugin registration and config', () => {
       })
     await expect(ctx.llm.resolveModelInfo('deepseek-official', 'arbitrary-unlisted'))
       .resolves.toMatchObject({
-        context: { contextWindow: 1_000_000 },
-        defaultMaxTokens: 256_000,
+        context: { contextWindow: 131_072 },
+        defaultMaxTokens: 8_192,
       })
   })
 
