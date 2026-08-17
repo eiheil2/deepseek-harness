@@ -235,7 +235,11 @@ export class TokenMeter extends Service {
           event,
           eventTokens,
         )
-        const anchorSurfaceTokens = stepStart.surfaceTokens + providerAssistantTokens
+        // The request-time surface (state.surfaceTokens before this event
+        // commits) already includes messages injected after step/start, so the
+        // anchor matches what the provider actually saw and measure() does not
+        // double-count them against provider usage.
+        const anchorSurfaceTokens = state.surfaceTokens + providerAssistantTokens
         const providerTokens = usageTokens(event.data.usage)
         const estimatedAnchorTokens = estimateHeader(nextHeader) + anchorSurfaceTokens
         nextAnchor = {
@@ -248,7 +252,7 @@ export class TokenMeter extends Service {
             : { kind: 'estimated', tokens: estimatedAnchorTokens },
         }
       } else {
-        const anchorSurfaceTokens = stepStart.surfaceTokens + eventTokens
+        const anchorSurfaceTokens = state.surfaceTokens + eventTokens
         nextAnchor = {
           header: nextHeader,
           surfaceTokens: anchorSurfaceTokens,

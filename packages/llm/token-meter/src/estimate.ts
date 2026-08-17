@@ -12,11 +12,32 @@ import type { EpochHeader } from '@deepseek-ai/dsh-session'
 /** Fixed text-density estimate used until exact tokenization is needed. */
 const CHARS_PER_TOKEN = 4
 
+/** CJK characters (Chinese, Japanese, Korean) typically encode as ~1 char per token. */
+const CJK_CHARS_PER_TOKEN = 1
+
+/** Per-image heuristic chars aligned with @earendil-works/pi-ai ESTIMATED_IMAGE_CHARS. */
+const IMAGE_CHARS_PER_IMAGE = 4800
+
 /** Per-block structural overhead for JSON framing and type tags. */
 const BLOCK_OVERHEAD = 4
 
 /** Role-field framing overhead added to every priced message. */
 export const ROLE_OVERHEAD = 4
+
+/** CJK codepoint ranges priced at the CJK_CHARS_PER_TOKEN density. */
+const CJK_REGEX = /[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g
+
+/**
+ * Estimate tokens for text with CJK awareness: CJK characters average ~1
+ * char/token while other scripts average ~4 chars/token.
+ * @param text - the text to estimate.
+ * @returns estimated token count.
+ */
+function estimateText(text: string): number {
+  const cjkCount = (text.match(CJK_REGEX) ?? []).length
+  return Math.ceil(cjkCount / CJK_CHARS_PER_TOKEN)
+    + Math.ceil((text.length - cjkCount) / CHARS_PER_TOKEN)
+}
 
 /**
  * Price content blocks recursively under the fixed density heuristic.
@@ -29,15 +50,16 @@ export function estimateContent(blocks: readonly ContentBlock[]): number {
     switch (block.type) {
       case 'text':
       case 'reasoning':
-        tokens += Math.ceil(block.text.length / CHARS_PER_TOKEN) + BLOCK_OVERHEAD
+        tokens += estimateText(block.text) + BLOCK_OVERHEAD
         break
       case 'tool-call':
-        tokens += Math.ceil(block.name.length / CHARS_PER_TOKEN)
-          + Math.ceil(block.arguments.length / CHARS_PER_TOKEN)
-          + BLOCK_OVERHEAD
+        tokens += estimateText(block.name) + estimateText(block.arguments) + BLOCK_OVERHEAD
         break
       case 'tool-result':
         tokens += estimateContent(block.content) + BLOCK_OVERHEAD
+        break
+      case 'image':
+        tokens += Math.ceil(IMAGE_CHARS_PER_IMAGE / CHARS_PER_TOKEN) + BLOCK_OVERHEAD
         break
       default:
         // ContentBlockMap is merge-extensible; unknown blocks retain a
