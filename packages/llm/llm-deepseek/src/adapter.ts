@@ -88,9 +88,15 @@ export interface DeepSeekAdapterOptions {
 /** Default maximum idle interval while an adapter stream read is outstanding. */
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
 /** Default combined request/response context capacity. */
-export const DEFAULT_CONTEXT_WINDOW = 1_000_000
+// The DeepSeek API's deepseek-chat/reasoner official context window is 128K
+// (131072 tokens), not a 1M assumption — a 1M figure made the compaction
+// threshold (0.8 x contextWindow) effectively unreachable and overstated
+// capacity. 131072 matches the API's enforced maximum.
+export const DEFAULT_CONTEXT_WINDOW = 131_072
 /** Default per-request output-token cap. */
-export const DEFAULT_MAX_TOKENS = 256_000
+// deepseek-chat/reasoner accept max_tokens only in [1, 8192]; sending a larger
+// cap risks gateway-side truncation (phenomenon three) or a 400.
+export const DEFAULT_MAX_TOKENS = 8_192
 const STREAM_IDLE_TIMEOUT_CODE = 'LLM_STREAM_IDLE_TIMEOUT'
 const OFF_REASONING_EFFORT = ReasoningEffortId('off')
 const HIGH_REASONING_EFFORT = ReasoningEffortId('high')

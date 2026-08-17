@@ -152,6 +152,10 @@ export class InvariantRegistry extends Service {
     try {
       registration = ctx.effect(async () => {
         if (!this.selected(packageName)) {
+          // Observable skip: a filtered or disabled invariant must not vanish
+          // silently — debugging "why is my invariant not running" previously
+          // required reading config by hand.
+          ctx.logger.debug(`invariants: "${packageName}" skipped by package filter or disabled`, { packageName })
           return () => {
             registrations.delete(packageName)
           }
