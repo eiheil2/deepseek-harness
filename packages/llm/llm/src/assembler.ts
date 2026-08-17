@@ -127,15 +127,29 @@ export class BlockAssembler {
 
   /**
    * Assemble all blocks seen so far, in stream order.
-   * @returns one block per seen index, except that max-token truncation drops
-   *   tool calls that cannot be executed safely; an open block assembles from
-   *   its accumulated deltas (an unknown block type never closed by `block-end` throws).
+   * @returns one block per seen index; max-token truncation keeps every block
+   *   that still assembles (complete tool-calls included) and skips blocks
+   *   that fail to build from their accumulated deltas.
    */
   blocks(): ContentBlock[] {
-    const blocks = this.order.map(index => this.assemble(this.mustGet(index), index))
-    return this.finish.kind === 'max-tokens'
-      ? blocks.filter(block => block.type !== 'tool-call')
-      : blocks
+    if (this.finish.kind === 'max-tokens') {
+      // Assemble every block, keeping complete tool-calls instead of dropping
+      // them all (the original filter discarded arrived tool-calls, so
+      // agent-loop never saw them). A block that fails to assemble (e.g. a
+      // truncated tool-call that cannot build) is skipped; an
+      // assembled-but-incomplete tool-call degrades safely downstream
+      // (argument JSON validation rejects and surfaces it as a tool result).
+      const blocks: ContentBlock[] = []
+      for (const index of this.order) {
+        try {
+          blocks.push(this.assemble(this.mustGet(index), index))
+        } catch {
+          // skip incomplete blocks that failed assembly
+        }
+      }
+      return blocks
+    }
+    return this.order.map(index => this.assemble(this.mustGet(index), index))
   }
 
   /** Usage from the `usage` chunk; undefined until one arrives. */

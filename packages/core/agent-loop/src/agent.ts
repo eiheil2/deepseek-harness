@@ -388,9 +388,23 @@ export class ReactLoopAgent implements Agent {
         },
         { surfaceOp: 'append', sourceEventSeqs: chunkSeqs },
       )
-      if (finish.kind === 'max-tokens') return { kind: 'max-tokens' }
-
       const toolCalls = message.content.filter(block => block.type === 'tool-call')
+      if (finish.kind === 'max-tokens') {
+        // max-token truncation still executes retained tool-calls before ending
+        // the step: a complete tool-call the model already emitted must not be
+        // silently dropped (the phenomenon-three root cause). A half tool-call
+        // (incomplete JSON arguments) is rejected by the tool's own argument
+        // validation and returned as a tool result, so it cannot crash the
+        // session. Returns the truncation marker so the caller can still react
+        // to max-tokens (turn-stopping / retry).
+        if (toolCalls.length > 0) {
+          await executeToolCalls(
+            this.loopCtx, turn, step, toolCalls, signal,
+            context => this.inbox.splice('next-step', this.inbox.nextStep.length, 0, [context]),
+          )
+        }
+        return { kind: 'max-tokens' }
+      }
       if (toolCalls.length === 0) return { kind: 'completed' }
       const { concluded } = await executeToolCalls(
         this.loopCtx, turn, step, toolCalls, signal,
