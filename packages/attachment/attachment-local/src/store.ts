@@ -74,8 +74,26 @@ export async function validateImageFile(input: SaveImageAttachment, limits: Imag
  * reference is reported.
  */
 async function syncDirectory(path: string): Promise<void> {
-  /* v8 ignore next -- Windows cannot open directory handles; NTFS metadata journaling owns entry durability there. */
-  if (process.platform === 'win32') return
+  if (process.platform === 'win32') {
+    // Windows workaround: create and sync a sentinel file to flush directory
+    // metadata. NTFS metadata journaling provides eventual durability, but an
+    // explicit flush ensures directory entries survive immediate crashes.
+    const sentinel = join(path, '.dsh-sync-sentinel')
+    try {
+      const handle = await open(sentinel, 'w', 0o600)
+      try {
+        await handle.sync()
+      } finally {
+        await handle.close()
+      }
+      await unlink(sentinel)
+    } catch {
+      // Best effort: if sentinel operations fail, continue without sync.
+      // This maintains backward compatibility while improving durability
+      // where possible.
+    }
+    return
+  }
   /* v8 ignore start -- Windows cannot exercise directory fsync; POSIX behavior tests enforce this peer. */
   const handle = await open(path, constants.O_RDONLY)
   try {
