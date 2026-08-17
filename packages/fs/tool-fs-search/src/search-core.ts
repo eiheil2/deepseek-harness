@@ -267,7 +267,15 @@ export async function runRipgrep(
   if (outcome.signal !== null || outcome.exitCode === null) {
     throw new SearchError(`${toolName} search command was killed by signal ${outcome.signal ?? '(unknown)'}`, 'SEARCH_FAILED')
   }
-  if (outcome.exitCode !== 0 && outcome.exitCode !== 1) {
+  // ripgrep uses exit 2 for pattern errors (regex parse / glob) but also for
+  // its own I/O failures on some inputs; the former must surface as
+  // SEARCH_INVALID_PATTERN instead of silently returning an empty result set,
+  // while a non-pattern exit 2 still keeps whatever partial results rg printed.
+  if (outcome.exitCode === 2) {
+    if (/regex parse error|error parsing glob/i.test(stderrExcerpt(stderr.text, stderr.lossy))) {
+      throw classifyRunFailure(toolName, outcome.exitCode, stderr.text, stderr.lossy)
+    }
+  } else if (outcome.exitCode !== 0 && outcome.exitCode !== 1) {
     throw classifyRunFailure(toolName, outcome.exitCode, stderr.text, stderr.lossy)
   }
   const text = completeStdout(toolName, stdout, rawOutputMaxBytes)
