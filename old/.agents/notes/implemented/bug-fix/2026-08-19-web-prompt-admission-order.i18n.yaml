@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-19-web-prompt-admission-order.md
+2026-08-19-web-prompt-admission-order.md: 013a61ce38d2e8ec3cdc921dac272e146569ac4f
+2026-08-19-web-prompt-admission-order.zh.md: 5a0b09faff1c9164a67fb88c63364ed8a8901f4e

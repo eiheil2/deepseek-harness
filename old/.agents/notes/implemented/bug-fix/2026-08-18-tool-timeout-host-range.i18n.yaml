@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-18-tool-timeout-host-range.md
+2026-08-18-tool-timeout-host-range.md: fa9ca213cd5e8d0c1168a5fd152e02257167e8ef
+2026-08-18-tool-timeout-host-range.zh.md: 7bffe9b44d9248e61fd2e2843069adbc02008105

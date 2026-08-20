@@ -1,0 +1,12 @@
+- id: agent-default-model
+  config:
+    provider: cli-mock
+    model: cli-mock
+
+- id: system-prompt
+  config:
+    maxAggregateToolSchemaBytes: 1
+
+- insert:
+    - id: cli-mock-llm
+      name: './snapshot-fixtures/cli-mock-llm.ts'

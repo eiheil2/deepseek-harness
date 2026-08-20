@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-19-code-mode-dispatch-id-reuse.md
+2026-08-19-code-mode-dispatch-id-reuse.md: 97f00e5511c9558cc8961f43c66b14a8a82aa3ae
+2026-08-19-code-mode-dispatch-id-reuse.zh.md: eddaea286040cc3520522f89f8117a2208ea5c97

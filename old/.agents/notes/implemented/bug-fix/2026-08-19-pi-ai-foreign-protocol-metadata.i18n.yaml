@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-19-pi-ai-foreign-protocol-metadata.md
+2026-08-19-pi-ai-foreign-protocol-metadata.md: 52f1076b8dc4c502911799cf5cab21b0651594a4
+2026-08-19-pi-ai-foreign-protocol-metadata.zh.md: 66cb858c1a63d53ee506e1835025eb44aacb9c37

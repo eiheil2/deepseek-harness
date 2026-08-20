@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-19-frozen-llm-retry-request.md
+2026-08-19-frozen-llm-retry-request.md: 21341b7c1144721a8acdb85ece4b46f340a5bea7
+2026-08-19-frozen-llm-retry-request.zh.md: 94e40cdbb877b6b8a534b5139eabbdec01f2d585
