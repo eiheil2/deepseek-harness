@@ -26,6 +26,9 @@ or development dependencies.
 
 ## Verification status
 
-Static shell, Node, and PowerShell syntax checks pass. End-to-end download and
-install verification is pending until the fork tag's GitHub Actions release
-asset exists.
+Static shell, Node, and PowerShell syntax checks pass. The fork tag's release
+archive was downloaded and its SHA-256 matched the published checksum. The
+archive boundary contains runtime tarballs and the manifest only. A complete
+consumer npm install was not used as the acceptance gate because it performs a
+large dependency resolution on the host; the CI pack verification remains the
+authoritative runtime-install check.
