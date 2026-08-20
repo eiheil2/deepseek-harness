@@ -1,0 +1,72 @@
+name: Release custom patched runtime
+
+on:
+  push:
+    tags:
+      - 'dsh-custom-v*'
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: '24'
+  DSH_TELEMETRY_DISABLED: '1'
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install and build patched source
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build:official
+
+      - name: Pack patched runtime packages
+        run: |
+          pnpm run release:pack --family dsh --out dist/npm
+          pnpm run release:pack --family vendor --out dist/npm-vendor
+          pnpm --dir native/landlock-run run build:ts
+          mkdir -p dist/npm-landlock
+          pnpm --dir native/landlock-run/packages/entry pack --pack-destination "$PWD/dist/npm-landlock"
+
+      - name: Assemble minimal runtime archive
+        id: runtime
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#dsh-custom-v}"
+          [[ -n "$tag" ]] || { echo 'missing dsh-custom-v* tag' >&2; exit 1; }
+          mkdir -p "dist/custom-runtime"/{npm,vendor,landlock}
+          cp dist/npm/*.tgz dist/custom-runtime/npm/
+          cp dist/npm-vendor/*.tgz dist/custom-runtime/vendor/
+          cp dist/npm-landlock/*.tgz dist/custom-runtime/landlock/
+          node scripts/release/make-custom-runtime-manifest.mjs \
+            dist/custom-runtime/runtime-manifest.json \
+            dist/custom-runtime/npm dist/custom-runtime/vendor dist/custom-runtime/landlock
+          archive="dsh-custom-runtime-${tag}.tar.gz"
+          tar -czf "dist/${archive}" -C dist/custom-runtime .
+          sha256sum "dist/${archive}" > "dist/${archive}.sha256"
+          echo "tag=dsh-custom-v${tag}" >> "$GITHUB_OUTPUT"
+          echo "archive=${archive}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.runtime.outputs.tag }}" \
+            "dist/${{ steps.runtime.outputs.archive }}" \
+            "dist/${{ steps.runtime.outputs.archive }}.sha256" \
+            --title "DSH patched runtime ${{ steps.runtime.outputs.tag }}" \
+            --notes "Patched DeepSeek Harness runtime built from this commit. This is not the official npm rc8 package."
