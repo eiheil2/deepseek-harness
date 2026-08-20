@@ -33,10 +33,25 @@ NODE
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/dsh-custom.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT INT TERM
 archive="$tmp/$ASSET"
+checksum="$tmp/$ASSET.sha256"
 if command -v curl >/dev/null 2>&1; then curl --fail --location --retry 3 --output "$archive" "$URL"
 elif command -v wget >/dev/null 2>&1; then wget -O "$archive" "$URL"
 else printf '%s\n' 'dsh installer: curl or wget is required.' >&2; exit 1
 fi
+if command -v curl >/dev/null 2>&1; then curl --fail --location --retry 3 --output "$checksum" "${URL}.sha256"
+else wget -O "$checksum" "${URL}.sha256"
+fi
+node - "$archive" "$checksum" <<'NODE'
+const fs = require('node:fs')
+const crypto = require('node:crypto')
+const [archive, checksum] = process.argv.slice(2)
+const expected = fs.readFileSync(checksum, 'utf8').trim().split(/\s+/)[0].toLowerCase()
+const actual = crypto.createHash('sha256').update(fs.readFileSync(archive)).digest('hex')
+if (expected !== actual) {
+  console.error(`dsh installer: checksum mismatch for ${archive}`)
+  process.exit(1)
+}
+NODE
 
 install_root="$PREFIX/lib/dsh-custom/$VERSION"
 mkdir -p "$install_root"

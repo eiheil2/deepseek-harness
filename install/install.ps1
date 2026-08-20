@@ -25,7 +25,12 @@ $installRoot = Join-Path $Prefix "lib\dsh-custom\$version"
 New-Item -ItemType Directory -Force -Path $temp, $installRoot | Out-Null
 try {
   $archive = Join-Path $temp $asset
+  $checksum = Join-Path $temp "$asset.sha256"
   Invoke-WebRequest -Uri $url -OutFile $archive
+  Invoke-WebRequest -Uri "$url.sha256" -OutFile $checksum
+  $expected = ((Get-Content $checksum -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+  $actual = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($expected -ne $actual) { Fail "checksum mismatch for $asset" }
   & tar -xzf $archive -C $installRoot
   if (-not (Test-Path (Join-Path $installRoot 'runtime-manifest.json'))) { Fail 'runtime manifest missing from downloaded asset.' }
   $manifest = Get-Content (Join-Path $installRoot 'runtime-manifest.json') -Raw | ConvertFrom-Json
