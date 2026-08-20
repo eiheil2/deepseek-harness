@@ -55,7 +55,11 @@ jobs:
           node scripts/release/make-custom-runtime-manifest.mjs \
             dist/custom-runtime/runtime-manifest.json \
             dist/custom-runtime/npm dist/custom-runtime/vendor dist/custom-runtime/landlock
-          archive="dsh-custom-runtime-${tag}.tar.gz"
+          if [[ "$tag" == *-linux.* ]]; then
+            archive="dsh-custom-runtime-linux-x64-${tag}.tar.gz"
+          else
+            archive="dsh-custom-runtime-${tag}.tar.gz"
+          fi
           tar -czf "dist/${archive}" -C dist/custom-runtime .
           sha256sum "dist/${archive}" > "dist/${archive}.sha256"
           echo "tag=dsh-custom-v${tag}" >> "$GITHUB_OUTPUT"
@@ -69,4 +73,4 @@ jobs:
             "dist/${{ steps.runtime.outputs.archive }}" \
             "dist/${{ steps.runtime.outputs.archive }}.sha256" \
             --title "DSH patched runtime ${{ steps.runtime.outputs.tag }}" \
-            --notes "Patched DeepSeek Harness runtime built from this commit. This is not the official npm rc8 package."
+            --notes "Patched DeepSeek Harness runtime built from this commit on Ubuntu 24.04. This is not the official npm rc8 package."

@@ -15,6 +15,15 @@ the packed runtime tarballs and a generated dependency manifest.
 sh install.sh
 ```
 
+For Linux and WSL, use the Ubuntu-built Linux x64 asset:
+
+```sh
+sh install-linux.sh
+```
+
+That asset is built and verified on `ubuntu-24.04`. It is intended for normal
+x86_64 Linux and WSL2 x86_64 environments.
+
 Use `DSH_PREFIX=$HOME/.local` or `sh install.sh --prefix "$HOME/.local"` to
 choose the installation prefix. The script requires Node.js `22.19+` or `24+`,
 `npm`, `tar`, and `curl` or `wget`.

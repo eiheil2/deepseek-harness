@@ -18,11 +18,16 @@ or development dependencies.
 ## Installer contract
 
 - Linux/macOS: `install/install.sh`
+- Linux/WSL x64: `install/install-linux.sh`
 - Windows: `install/install.ps1` and `install/install.cmd`
 - Default source: `https://github.com/eiheil2/deepseek-harness/releases/`
 - Default tag: `dsh-custom-v0.1.0-rc.8-patched.1`
 - No fallback to the official npm package.
 - Installation fails if the fork release asset is unavailable.
+
+The Linux/WSL tag uses the Ubuntu 24.04 CI runner and is published as a
+separate `linux-x64` archive. The local WSL instance was not used as the build
+host because its command interface did not return during this run.
 
 ## Verification status
 
