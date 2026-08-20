@@ -25,6 +25,8 @@ import {
   loadOptionalPatches,
   loadOverlayPatches,
   loadProfile,
+  DEFAULT_PROFILE_BUNDLES,
+  PROFILE_TEMPLATES,
   PROFILE_PATCH_FILENAME,
   watchUserPatches,
   type Profile,
@@ -95,9 +97,12 @@ export function resolveTelemetryPatch(disabledEnv: string | undefined, hasRow: b
  * @param userLayer - `false` skips parsing `cordis.patch.yml` (the default dump).
  * @returns the loaded profile.
  */
-export function prepareProfile(name: string, userLayer = true): Profile {
+export function prepareProfile(name: string, userLayer = true, bundles?: readonly string[]): Profile {
   healProfilesModuleFallback(INSTALL_ANCHOR)
-  const profile = loadProfile(NAME, name, INSTALL_ANCHOR, undefined, { userLayer })
+  const profile = loadProfile(NAME, name, INSTALL_ANCHOR, undefined, {
+    userLayer,
+    ...(bundles === undefined ? {} : { bundles }),
+  })
   writeFileSync(join(profile.dir, PROFILE_ROOT_FILENAME), PROFILE_ROOT_CONFIG)
   return profile
 }
@@ -116,6 +121,8 @@ interface ComposedProfile {
    * launcher's own row checks.
    */
   rows: ReadonlyMap<string, EntryOptions>
+  /** Bundle layers omitted by an all-plugin recovery boot. */
+  skippedBundles: readonly string[]
 }
 
 /** The full patch stack of one composed profile, in application order. */
@@ -142,11 +149,26 @@ function allPatches(composed: ComposedProfile): PatchOptions[] {
 function composeProfile(
   name: string,
   patchFiles: readonly string[],
+  recovery: RecoveryOptions = {},
 ): ComposedProfile {
-  const profile = prepareProfile(name)
-  const homePatches = loadOptionalPatches(NAME, homePatchPath()) ?? []
-  const overlays = patchFiles.flatMap(file => loadOverlayPatches(NAME, resolve(file)))
-  const bundlePatches = profile.layers.flatMap(layer => layer.patches)
+  const shippedBundles = new Set(PROFILE_TEMPLATES[name] ?? DEFAULT_PROFILE_BUNDLES)
+  const profile = prepareProfile(
+    name,
+    recovery.mode !== 'all',
+    recovery.mode === 'all' ? [...shippedBundles] : undefined,
+  )
+  const layers = profile.layers
+  // The allowlist is applied while resolving manifests, so a broken custom
+  // bundle cannot prevent the all-plugin recovery boot from starting.
+  const skippedBundles = recovery.mode === 'all' ? ['non-shipped profile bundles'] : []
+  const homePatches = recovery.mode === 'all' ? [] : loadOptionalPatches(NAME, homePatchPath()) ?? []
+  const overlays = recovery.mode === 'all'
+    ? []
+    : patchFiles.flatMap(file => loadOverlayPatches(NAME, resolve(file)))
+  const bundlePatches = layers.flatMap(layer => layer.patches)
+  if (recovery.mode === 'culprit') {
+    for (const id of recovery.disabledEntryIds ?? []) overlays.push({ id, disabled: true })
+  }
   const rows = new Map<string, EntryOptions>()
   for (const row of composeEntries([bundlePatches, profile.patches, homePatches, overlays])) {
     if (typeof row.id === 'string') rows.set(row.id, row)
@@ -167,7 +189,15 @@ function composeProfile(
   }
   const telemetryPatch = resolveTelemetryPatch(process.env.DSH_TELEMETRY_DISABLED, rows.has(TELEMETRY_ROW_ID))
   if (telemetryPatch !== undefined) composedOverlays.push(telemetryPatch)
-  return { profile, bundlePatches, homePatches, overlays: composedOverlays, rows }
+  return { profile, bundlePatches, homePatches, overlays: composedOverlays, rows, skippedBundles }
+}
+
+/** One automatic startup recovery attempt. The recovery never mutates profile files. */
+export interface RecoveryOptions {
+  /** `culprit` keeps the normal composition and disables selected rows; `all` keeps shipped bundles only. */
+  mode?: 'culprit' | 'all'
+  /** Loader entry ids suspected from the failed startup. */
+  disabledEntryIds?: readonly string[]
 }
 
 /** Options for {@link runProfile}. */
@@ -180,6 +210,88 @@ export interface RunProfileOptions {
   patchFiles: readonly string[]
   /** The invocation's inner arguments, handed to the tree through `ctx.cmdlineArgs`. */
   args: readonly string[]
+  /** Optional automatic recovery composition, supplied by the launcher retry. */
+  recovery?: RecoveryOptions
+}
+
+/** A compact description of a plugin implicated by a Loader startup failure. */
+export interface StartupPluginFailure {
+  id: string
+  name: string
+}
+
+/** Startup error enriched with the configured entries implicated by Loader. */
+export class ProfileStartupError extends Error {
+  constructor(
+    message: string,
+    /** Original boot rejection, retained for the normal fatal diagnostic. */
+    readonly original: unknown,
+    /** Entries that can be isolated on a recovery retry. */
+    readonly plugins: readonly StartupPluginFailure[],
+  ) {
+    super(message, { cause: original })
+    this.name = 'ProfileStartupError'
+  }
+}
+
+/** Return the deepest error messages available from a Loader failure chain. */
+function startupErrorText(error: unknown): string {
+  const parts: string[] = []
+  let current: unknown = error
+  const seen = new Set<unknown>()
+  while (current !== undefined && current !== null && !seen.has(current)) {
+    seen.add(current)
+    parts.push(current instanceof Error ? current.message : String(current))
+    current = current instanceof Error ? current.cause : undefined
+  }
+  return parts.join('\n')
+}
+
+/**
+ * Find configured entries named by a failed Loader startup message. Matching
+ * against the already-composed rows avoids trusting arbitrary error text as a
+ * patch id and keeps recovery limited to the current profile.
+ * @param error - the rejected startup error.
+ * @param rows - the effective rows for the failed composition.
+ * @returns distinct entry ids and module names found in the failure chain.
+ */
+export function identifyStartupPluginFailures(
+  error: unknown,
+  rows: ReadonlyMap<string, EntryOptions>,
+): StartupPluginFailure[] {
+  const text = startupErrorText(error)
+  if (!/(plugin tree failed to load|loader entry|did not activate|failed to apply)/i.test(text)) return []
+  const lines = text.split(/\r?\n/)
+  const failures: StartupPluginFailure[] = []
+  for (const [id, row] of rows) {
+    if (row.name === 'cordis:include' || row.group) continue
+    const loaderEntry = text.includes(`loader entry ${id} (${row.name})`)
+    const activationLine = lines.some(line => line.startsWith(`${row.name}: `))
+    if (!loaderEntry && !activationLine) continue
+    failures.push({ id, name: row.name })
+  }
+  return failures
+}
+
+/** Print a recovery report after a safe boot has settled. */
+function reportRecovery(composed: ComposedProfile, recovery: RecoveryOptions): void {
+  const mode = recovery.mode
+  if (mode === undefined) return
+  const lines = ['dsh: startup recovery succeeded; safe mode is active.']
+  if (mode === 'culprit') {
+    const disabled = (recovery.disabledEntryIds ?? []).map((id) => {
+      const row = composed.rows.get(id)
+      return row === undefined ? id : `${id} (${row.name})`
+    })
+    lines.push(disabled.length > 0
+      ? `dsh: disabled suspected plugin entries for this run: ${disabled.join(', ')}`
+      : 'dsh: no plugin entry was disabled for this run.')
+  } else {
+    lines.push('dsh: skipped the profile user patch, home patch, --patch overlays, and non-shipped bundles for this run.')
+    if (composed.skippedBundles.length > 0) lines.push(`dsh: skipped bundles: ${composed.skippedBundles.join(', ')}`)
+  }
+  lines.push('dsh: installed packages and profile files were not removed; fix or remove the reported plugin, then restart normally.')
+  process.stderr.write(`${lines.join('\n')}\n`)
 }
 
 /**
@@ -205,7 +317,7 @@ function suppressShutdownError(ctx: Context, signal: AbortSignal, error: unknown
  * @returns the settled root context and the shutdown controller.
  */
 export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Context; shutdown: ProcessShutdown }> {
-  const composed = composeProfile(options.profile, options.patchFiles)
+  const composed = composeProfile(options.profile, options.patchFiles, options.recovery)
   const app: { current?: Context } = {}
   const shutdown = createProcessShutdown(async () => { await app.current?.fiber.dispose() })
   const signalShutdown = new AbortController()
@@ -245,18 +357,27 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
   ])
   // Cloned for the same insert-aliasing reason as composeLive: the boot
   // application must not mutate the objects later reloads recompose from.
-  const ctx = await boot(NAME, rootConfig, structuredClone(allPatches(composed)), (hostCtx) => {
-    app.current = hostCtx
-    // Before any config-tree entry mounts, so plugins resolve all launch-time
-    // environment values from the same immutable provenance snapshot.
-    hostCtx.provide(DSH_LAUNCH_ENVIRONMENT_KEY, options.environment)
-    // The command line and bounded exit request are launcher facts available
-    // to every app plugin that injects the argument snapshot.
-    provideCmdline(hostCtx, {
-      args: options.args,
-      exit: code => void shutdown.shutdown(code),
+  let ctx: Context
+  try {
+    ctx = await boot(NAME, rootConfig, structuredClone(allPatches(composed)), (hostCtx) => {
+      app.current = hostCtx
+      // Before any config-tree entry mounts, so plugins resolve all launch-time
+      // environment values from the same immutable provenance snapshot.
+      hostCtx.provide(DSH_LAUNCH_ENVIRONMENT_KEY, options.environment)
+      // The command line and bounded exit request are launcher facts available
+      // to every app plugin that injects the argument snapshot.
+      provideCmdline(hostCtx, {
+        args: options.args,
+        exit: code => void shutdown.shutdown(code),
+      })
     })
-  })
+  } catch (error) {
+    throw new ProfileStartupError(
+      error instanceof Error ? error.message : String(error),
+      error,
+      identifyStartupPluginFailures(error, composed.rows),
+    )
+  }
   app.current = ctx
   // A surface can dispose the whole tree while boot or this post-boot watcher
   // setup is still in flight — a signal, or a fast one-shot's appExit. Loader
@@ -296,5 +417,6 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
       suppressShutdownError(ctx, signalShutdown.signal, error)
     }
   }
+  reportRecovery(composed, options.recovery ?? {})
   return { ctx, shutdown }
 }

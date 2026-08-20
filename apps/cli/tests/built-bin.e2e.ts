@@ -205,6 +205,83 @@ interface StartupFixture {
   witness: string
 }
 
+interface SafeModeFixture {
+  home: string
+  ready: string
+  interrupt: string
+  manifest: string
+  patch: string
+}
+
+/** A profile with one healthy long-running entry and one entry that throws during activation. */
+function createSafeModeFixture(): SafeModeFixture {
+  const home = mkdtempSync(join(tmpdir(), 'dsh-safe-mode-'))
+  const profileDir = join(home, 'profiles', 'safe-mode')
+  const bundleDir = join(profileDir, 'node_modules', 'dsh-safe-mode-bundle')
+  mkdirSync(bundleDir, { recursive: true })
+  const ready = join(home, 'ready')
+  const interrupt = join(home, 'interrupt')
+  writeFileSync(join(bundleDir, 'healthy.mjs'), [
+    "import { existsSync, writeFileSync } from 'node:fs'",
+    "export const name = 'safe-mode-healthy'",
+    'export function apply(ctx) {',
+    '  let interrupted = false',
+    '  const heartbeat = setInterval(() => {',
+    '    if (interrupted || !existsSync(process.env.RAW_INTERRUPT_FILE)) return',
+    '    interrupted = true',
+    "    process.emit('SIGTERM')",
+    '  }, 20)',
+    "  writeFileSync(process.env.RAW_READY_FILE, 'ready')",
+    '  ctx.effect(() => () => clearInterval(heartbeat))',
+    '}',
+    '',
+  ].join('\n'))
+  writeFileSync(join(bundleDir, 'broken.mjs'), [
+    "export const name = 'safe-mode-broken'",
+    "export function apply() { throw new Error('safe-mode fixture failure') }",
+    '',
+  ].join('\n'))
+  const patch = join(bundleDir, 'cordis.patch.yml')
+  writeFileSync(patch, [
+    '- insert:',
+    '    - id: safe-mode-healthy',
+    `      name: ${pathToFileURL(join(bundleDir, 'healthy.mjs')).href}`,
+    '    - id: safe-mode-broken',
+    `      name: ${pathToFileURL(join(bundleDir, 'broken.mjs')).href}`,
+    '',
+  ].join('\n'))
+  writeFileSync(join(bundleDir, 'package.json'), JSON.stringify({
+    name: 'dsh-safe-mode-bundle',
+    version: '0.0.0',
+    type: 'module',
+    dsh: { bundle: { patch: './cordis.patch.yml' } },
+  }, undefined, 2))
+  const manifest = join(profileDir, 'package.json')
+  writeFileSync(manifest, JSON.stringify({
+    name: 'dsh-profile-safe-mode',
+    private: true,
+    dependencies: {},
+    dsh: { profile: { bundles: ['dsh-safe-mode-bundle'] } },
+  }, undefined, 2))
+  writeFileSync(join(profileDir, 'cordis.patch.yml'), '[]\n')
+  return { home, ready, interrupt, manifest, patch }
+}
+
+function startSafeModeProfile(fixture: SafeModeFixture) {
+  return execa(process.execPath, [dshBin, '--profile', 'safe-mode'], {
+    cwd: fixture.home,
+    input: '',
+    reject: false,
+    timeout: 25_000,
+    killSignal: 'SIGKILL',
+    env: {
+      DSH_HOME: fixture.home,
+      RAW_READY_FILE: fixture.ready,
+      RAW_INTERRUPT_FILE: fixture.interrupt,
+    },
+  })
+}
+
 /**
  * A custom profile whose ordinary provider plugin injects `cmdlineArgs`, plus
  * a row that reads its app-owned service through a `!!js` config expression.
@@ -468,12 +545,35 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
         DSH_HOME: home,
         DEEPSEEK_API_KEY: 'keyless-invalid-config',
         DSH_TELEMETRY_DISABLED: '1',
+        DSH_SAFE_MODE_DISABLED: '1',
       })
       expect(result.code).toBe(1)
       expect(result.stdout).toBe('')
       expect(result.stderr).toContain('llm-pi-ai')
     } finally {
       rmSync(home, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('recovers by disabling only the failing plugin without changing the profile', async () => {
+    const fixture = createSafeModeFixture()
+    const manifestBefore = readFileSync(fixture.manifest, 'utf8')
+    const patchBefore = readFileSync(fixture.patch, 'utf8')
+    const child = startSafeModeProfile(fixture)
+    try {
+      await waitForFile(fixture.ready)
+      writeFileSync(fixture.interrupt, 'interrupt')
+      const result = await child
+      expect(result.exitCode, `${result.stderr}\nstdout:\n${result.stdout}`).toBe(0)
+      expect(result.stderr).toContain('safe-mode-broken')
+      expect(result.stderr).toContain('restarting in culprit safe mode')
+      expect(result.stderr).toContain('startup recovery succeeded')
+      expect(result.stderr).toContain('disabled suspected plugin entries for this run')
+      expect(readFileSync(fixture.manifest, 'utf8')).toBe(manifestBefore)
+      expect(readFileSync(fixture.patch, 'utf8')).toBe(patchBefore)
+    } finally {
+      child.kill('SIGKILL')
+      rmSync(fixture.home, { recursive: true, force: true })
     }
   }, 30_000)
 

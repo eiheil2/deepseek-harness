@@ -40,6 +40,10 @@ profile 目录包含一个 `package.json`，其中记录树外插件依赖，以
 
 使用 `--dump-default-config` 和 `--dump-config` 可在不启动的情况下检查组合后的配置树。
 
+## 启动安全模式
+
+当 Loader 插件导入或激活错误导致启动失败时，`dsh` 会自动重启一次，并仅在该次运行中停用已识别的问题条目。若无法识别单一条目，或该次重试仍失败，最后一次恢复只加载发行版随附的 bundle，并跳过 profile patch、home patch、`--patch` 覆盖层和非发行版 bundle。每次恢复都会把疑似条目 id 和模块名写入 stderr。恢复过程不会删除已安装的包，也不会改写 profile 文件；检查报告后可使用 `dsh plugin --profile <name> remove <package>` 进行永久修改。调试时可设置 `DSH_SAFE_MODE_DISABLED=1`，保留原本的快速失败行为。
+
 层的确切优先级、flag、关闭行为、部署默认值和源码执行方式，以 [CLI（命令行界面）行为参考](reference/README.md)为准。
 
 ## 开发

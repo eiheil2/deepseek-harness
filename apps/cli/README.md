@@ -40,6 +40,10 @@ Bundles named in `dsh.profile.bundles` resolve from the dsh installation first (
 
 Use `--dump-default-config` and `--dump-config` to inspect the composed tree without booting it.
 
+## Startup safe mode
+
+When a Loader plugin import or activation error prevents startup, `dsh` automatically restarts once with the identified entry disabled for that run. If no single entry can be identified, or that retry also fails, a final recovery run loads only the shipped bundles and skips the profile patch, home patch, `--patch` overlays, and non-shipped bundles. Each recovery writes the suspected entry id and module name to stderr. Recovery never removes installed packages or rewrites profile files; use `dsh plugin --profile <name> remove <package>` after inspecting the report to make a permanent change. Set `DSH_SAFE_MODE_DISABLED=1` when debugging to preserve the original fail-fast behavior.
+
 The [CLI behavior reference](reference/README.md) owns exact layer precedence, flags, shutdown behavior, deployment defaults, and source execution.
 
 ## Development

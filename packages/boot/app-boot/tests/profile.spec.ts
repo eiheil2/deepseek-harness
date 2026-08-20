@@ -143,6 +143,18 @@ describe('loadProfile', () => {
     expect(bare.layers).toEqual([])
   })
 
+  it('can resolve an allowlisted bundle set without importing skipped bundles', () => {
+    const anchor = stageInstallation({
+      'bundle-a': { patch: '- insert:\n    - id: a\n      name: pkg-a\n' },
+      'broken-bundle': {},
+    })
+    const home = tmp()
+    const dir = resolveProfileDir('demo', home)
+    initProfile(dir, ['bundle-a', 'broken-bundle'])
+    const profile = loadProfile('t', 'demo', anchor, home, { bundles: ['bundle-a'] })
+    expect(profile.layers.map(layer => layer.packageName)).toEqual(['bundle-a'])
+  })
+
   it('auto-initializes only shipped templates and fails loud otherwise', () => {
     const anchor = stageInstallation({})
     const home = tmp()
