@@ -25,7 +25,7 @@
 import { INVALID_CREDENTIAL_CODE, LlmError, normalizeApiKey } from '@deepseek-ai/dsh-llm'
 import type { LlmDiscoveredModel, LlmModelDiscoveryRequest } from '@deepseek-ai/dsh-llm'
 import { attributionHeaders } from '@deepseek-ai/dsh-llm'
-import { catalogModels } from './catalog.ts'
+import { catalogCapacityHint, catalogModels } from './catalog.ts'
 
 /**
  * Protocols whose model listing this module can read: the two that speak
@@ -135,7 +135,7 @@ async function readBounded(response: Response, url: string): Promise<string> {
  * skipped rather than failing the whole interrogation: a single malformed row
  * should not deny the user the rest of a working endpoint's catalog.
  */
-function readListing(body: unknown): LlmDiscoveredModel[] {
+function readListing(body: unknown, api: string): LlmDiscoveredModel[] {
   const data = (body as { data?: unknown } | null)?.data
   if (!Array.isArray(data)) {
     throw new LlmError(
@@ -149,8 +149,9 @@ function readListing(body: unknown): LlmDiscoveredModel[] {
     const id = label(entry?.id)
     if (id === undefined) continue
     const name = label(entry?.name, entry?.display_name)
-    const contextWindow = capacity(entry?.context_window, entry?.context_length)
-    const maxTokens = capacity(entry?.max_output_tokens, entry?.max_tokens)
+    const hint = catalogCapacityHint(id, api)
+    const contextWindow = capacity(entry?.context_window, entry?.context_length) ?? hint.contextWindow
+    const maxTokens = capacity(entry?.max_output_tokens, entry?.max_tokens) ?? hint.maxTokens
     models.push({
       id,
       ...name === undefined ? {} : { name },
@@ -280,5 +281,5 @@ export async function discoverModels(
   } catch (error: unknown) {
     throw new LlmError(`${url} did not answer with JSON`, 'DISCOVERY_FAILED', { cause: error })
   }
-  return readListing(body)
+  return readListing(body, api)
 }

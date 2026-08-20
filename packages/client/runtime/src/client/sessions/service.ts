@@ -27,6 +27,7 @@ import type {
 import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
+import { SessionCreateError } from '../contract/sessions-port.ts'
 import type { SessionFace } from '../contract/session.ts'
 import type { AgentContext, ISessions } from '../contract/sessions.ts'
 import { createScope, scopeOf as scopeTagOf } from '../agents/scope.ts'
@@ -103,21 +104,7 @@ interface SessionSelection {
   subagentAddress?: SubagentAddress
 }
 
-/** Structured session-create failure. */
-export class SessionCreateError extends Error {
-  override readonly name = 'SessionCreateError'
-
-  /**
-   * @param rpcError - Host business or folded transport error.
-   * @param requestedSessionId - caller-preallocated id used for later stream/list reconciliation.
-   */
-  constructor(
-    readonly rpcError: RpcError,
-    readonly requestedSessionId: SessionId | undefined,
-  ) {
-    super(`session create failed: ${rpcError.code}: ${rpcError.message}`)
-  }
-}
+export { SessionCreateError } from '../contract/sessions-port.ts'
 
 /** Structured session-fork failure. */
 export class SessionForkError extends Error {
@@ -484,7 +471,13 @@ export class SessionRuntime implements ISessions {
    */
   async create(opts: { workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId } = {}): Promise<SessionId> {
     const result = await this.manager.create(opts)
-    if (!result.ok) throw new SessionCreateError(result.error, opts.sessionId)
+    if (!result.ok) {
+      // Host publication precedes Workspace accounting. Project that partial
+      // success before rejecting so callers can recover the real Session
+      // instead of leaving it hidden until the next notification flush.
+      if (result.error.code === 'workspace-attach-failed') this.projectList()
+      throw new SessionCreateError(result.error, opts.sessionId)
+    }
     this.projectList()
     return result.value.sessionId
   }

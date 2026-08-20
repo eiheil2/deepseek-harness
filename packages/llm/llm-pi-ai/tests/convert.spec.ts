@@ -606,7 +606,7 @@ describe('toStreamChunks', () => {
       { type: 'block-start', index: 0, blockType: 'text' },
       { type: 'text-delta', index: 0, text: 'hi' },
       { type: 'block-end', index: 0, block: { type: 'text', text: 'hi' } },
-      { type: 'usage', usage: { inputTokens: 3, outputTokens: 2 } },
+      { type: 'usage', usage: { inputTokens: 3, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, cacheTelemetry: 'available' } },
       {
         type: 'finish',
         reason: { kind: 'stop' },
@@ -657,7 +657,7 @@ describe('toStreamChunks', () => {
       { type: 'tool-call-delta', index: 0, id: 'call-1', name: 'f', argumentsDelta: '{"a"' },
       { type: 'tool-call-delta', index: 0, id: 'call-1', name: 'f', argumentsDelta: ':1}' },
       { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'call-1', name: 'f', arguments: '{"a":1}' } },
-      { type: 'usage', usage: { inputTokens: 0, outputTokens: 0 } },
+      { type: 'usage', usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, cacheTelemetry: 'available' } },
       {
         type: 'finish',
         reason: { kind: 'tool-calls' },
@@ -691,7 +691,7 @@ describe('toStreamChunks', () => {
       { type: 'error', reason: 'error', error },
     )))
     expect(chunks).toEqual([
-      { type: 'usage', usage: { inputTokens: 1, outputTokens: 0 } },
+      { type: 'usage', usage: { inputTokens: 1, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, cacheTelemetry: 'available' } },
       { type: 'finish', reason: { kind: 'error', failure: { message: 'boom', code: 'PI_AI_ERROR' } } },
     ])
   })
@@ -841,14 +841,17 @@ describe('mapStopReason / mapUsage', () => {
     })
   })
 
-  it('maps cache fields only when nonzero', () => {
+  it('maps cache fields and explicit availability, including zero values', () => {
     expect(mapUsage(usage(10, 5, 8, 2))).toEqual({
       inputTokens: 10,
       outputTokens: 5,
       cacheReadTokens: 8,
       cacheWriteTokens: 2,
+      cacheTelemetry: 'available',
     })
-    expect(mapUsage(usage(10, 5))).toEqual({ inputTokens: 10, outputTokens: 5 })
+    expect(mapUsage(usage(10, 5))).toEqual({
+      inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, cacheTelemetry: 'available',
+    })
   })
 })
 

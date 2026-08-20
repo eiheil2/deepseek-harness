@@ -37,7 +37,7 @@ All three units use the standard projection baseline, live frame, higher-seq-win
 
 ### Context occupancy is an approximation, by design
 
-The occupancy fields are independent last-wins records and are **not** one atomic observation of a single request. Switching models pairs the fresh capacity with the previous route's sample until the next request reports usage, and `pressureTokens` describes the last request rather than the surface as it stands right now — `projectedTokens` carries that sample forward over the surface's movement, but its anchor is still the older request.
+The occupancy fields are independent last-wins records and are **not** one atomic observation of a single request. Switching models clears the previous route's pressure sample until the new route reports usage, so a fresh capacity is never paired with another model's usage. `pressureTokens` describes the last request rather than the surface as it stands right now — `projectedTokens` carries that sample forward over the surface's movement.
 
 This is deliberate. An occupancy percentage is a user-facing reference figure, not a billing record or a gating input — nothing in the harness makes decisions from it, and compaction reads `measure()` instead. A UI computes occupancy by dividing measured pressure by the separately resolved capacity for the selected model.
 

@@ -36,7 +36,12 @@ function state(overrides: Partial<ModelDirectoryState> = {}): ModelDirectoryStat
     groups: [{
       id: 'deepseek-official',
       name: 'DeepSeek',
-      models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', reasoning }],
+      models: [{
+        id: 'deepseek-v4-flash',
+        name: 'DeepSeek-V4-Flash',
+        inputModalities: ['text', 'image'],
+        reasoning,
+      }],
     }],
     failures: [],
     status: 'ready',
@@ -67,7 +72,8 @@ describe('ModelSelect reasoning effort', () => {
       name: '选择模型，当前 DeepSeek-V4-Flash，推理等级 High',
     })
     fireEvent.click(trigger)
-    fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
+    expect(screen.getByRole('status', { name: '接受输入：文字与图片' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('menuitem', { name: /Change reasoning effort/ }))
     expect(screen.getAllByRole('menuitemradio').map(item => item.textContent))
       .toEqual(['Off', 'High', 'MaxLargest budget'])
 
@@ -80,6 +86,65 @@ describe('ModelSelect reasoning effort', () => {
       })
       expect(trigger.getAttribute('aria-label')).toBe('选择模型，当前 DeepSeek-V4-Flash，推理等级 Max')
     })
+  })
+
+  it('shows accepted input for the current model and distinguishes models in the picker', () => {
+    const directory = createSnapshotStore(state({
+      groups: [{
+        id: 'provider',
+        name: 'Provider',
+        models: [
+          { id: 'vision', name: 'Vision', inputModalities: ['text', 'image'] },
+          { id: 'text', name: 'Text', inputModalities: ['text'] },
+          { id: 'unknown', name: 'Unknown' },
+        ],
+      }],
+      current: { provider: 'provider', model: 'vision' },
+    }))
+    render(<ModelSelect
+      locked={false}
+      available
+      directory={directory}
+      load={vi.fn()}
+      select={vi.fn().mockResolvedValue(true)}
+      t={t}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))
+    expect(screen.getByRole('status', { name: '接受输入：文字与图片' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
+    expect(screen.getByRole('menuitemradio', { name: /Vision文字与图片/ })).toBeTruthy()
+    expect(screen.getByRole('menuitemradio', { name: /Text文字/ })).toBeTruthy()
+    expect(screen.getByRole('menuitemradio', { name: /Unknown未声明/ })).toBeTruthy()
+  })
+
+  it('disables text-only models while the composer draft contains an image', () => {
+    const directory = createSnapshotStore(state({
+      groups: [{
+        id: 'provider',
+        name: 'Provider',
+        models: [
+          { id: 'vision', name: 'Vision', inputModalities: ['text', 'image'] },
+          { id: 'text', name: 'Text', inputModalities: ['text'] },
+        ],
+      }],
+      current: { provider: 'provider', model: 'vision' },
+    }))
+    render(<ModelSelect
+      locked={false}
+      imageInputActive
+      available
+      directory={directory}
+      load={vi.fn()}
+      select={vi.fn().mockResolvedValue(true)}
+      t={t}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))
+    expect(screen.getByRole('status', { name: '接受输入：需要文字与图片' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
+    expect(screen.getByRole('menuitemradio', { name: /Vision文字与图片/ }).hasAttribute('disabled')).toBe(false)
+    expect(screen.getByRole('menuitemradio', { name: /Text文字/ }).hasAttribute('disabled')).toBe(true)
   })
 
   it('offers provider default only when the adapter does not configure a model default', () => {
@@ -107,7 +172,7 @@ describe('ModelSelect reasoning effort', () => {
     fireEvent.click(screen.getByRole('button', {
       name: '选择模型，当前 Model，推理等级 Default',
     }))
-    fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Change reasoning effort/ }))
     expect(screen.getAllByRole('menuitemradio').map(item => item.textContent))
       .toEqual(['Default', 'Standard'])
   })
@@ -129,10 +194,10 @@ describe('ModelSelect reasoning effort', () => {
     const trigger = screen.getByRole('button', { name: '选择模型' })
     expect(trigger.textContent).toContain('选择模型')
     fireEvent.click(trigger)
-    expect(screen.queryByRole('menuitem', { name: /推理等级/ })).toBeNull()
+    expect(screen.getByRole('menuitem', { name: /Change reasoning effortNot declared/ }).hasAttribute('disabled')).toBe(true)
     fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
     expect(screen.queryByText('removed-model')).toBeNull()
-    expect(screen.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash' })).toBeTruthy()
+    expect(screen.getByRole('menuitemradio', { name: /DeepSeek-V4-Flash/ })).toBeTruthy()
   })
 
   it('announces a rejected selection as a transient toast and keeps the in-menu strip for loads', async () => {

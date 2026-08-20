@@ -43,8 +43,8 @@ interface EffortChoice {
  * @returns the trigger and, while open, the two-level menu.
  */
 export function ModelSelect(
-  { locked, available, directory, load, select, t }:
-  ModelSelectInjected & { locked: boolean } & PropsLocale<'model'>,
+  { locked, imageInputActive = false, available, directory, load, select, t }:
+  ModelSelectInjected & { locked: boolean; imageInputActive?: boolean } & PropsLocale<'model'>,
 ) {
   const state = useSyncExternalStore(
     fn => directory.subscribe(fn),
@@ -81,6 +81,14 @@ export function ModelSelect(
     : choices.findIndex(c => c.selection.provider === state.current?.provider && c.selection.model === state.current.model)
   const currentChoice = choices[selectedIndex]
   const reasoning = currentChoice?.model.reasoning
+  const inputLabel = currentChoice?.model.inputModalities === undefined
+    ? t('input.unknown')
+    : currentChoice.model.inputModalities.includes('image')
+      ? t('input.vision')
+      : t('input.text')
+  const inputStatusLabel = imageInputActive
+    ? t('input.visionRequired')
+    : inputLabel
   const effectiveEffort = state.current?.reasoningEffort ?? reasoning?.defaultEffort
   const effortLabel = reasoning === undefined
     ? undefined
@@ -256,13 +264,23 @@ export function ModelSelect(
                 <span className={css.cellValue}>{modelLabel}</span>
                 <IconChevronRightOutline14 className={css.cellChevron} />
               </button>
-              {reasoning !== undefined && (
-                <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { setPane('effort') }}>
-                  <span className={css.cellLabel}>{t('menu.effort')}</span>
-                  <span className={css.cellValue}>{effortLabel}</span>
-                  <IconChevronRightOutline14 className={css.cellChevron} />
-                </button>
-              )}
+              <button
+                ref={reasoning === undefined ? undefined : itemRef()}
+                type="button"
+                role="menuitem"
+                className={css.cell}
+                disabled={reasoning === undefined}
+                aria-disabled={reasoning === undefined || undefined}
+                onClick={() => { if (reasoning !== undefined) setPane('effort') }}
+              >
+                <span className={css.cellLabel}>{t('menu.effort')}</span>
+                <span className={css.cellValue}>{effortLabel ?? t('effort.unavailable')}</span>
+                {reasoning !== undefined && <IconChevronRightOutline14 className={css.cellChevron} />}
+              </button>
+              <div className={css.cell} role="status" aria-label={`${t('menu.input')}：${inputStatusLabel}`}>
+                <span className={css.cellLabel}>{t('menu.input')}</span>
+                <span className={css.cellValue}>{inputStatusLabel}</span>
+              </div>
             </>
           )}
 
@@ -291,6 +309,9 @@ export function ModelSelect(
                       <div className={css.groupTitle} id={headingId}>{group.name}</div>
                       {group.models.map((model) => {
                         const selected = state.current?.provider === group.id && state.current.model === model.id
+                        const imageIncompatible = imageInputActive
+                          && model.inputModalities !== undefined
+                          && !model.inputModalities.includes('image')
                         return (
                           <button
                             ref={itemRef()}
@@ -299,8 +320,9 @@ export function ModelSelect(
                             aria-checked={selected}
                             className={clsx(css.option, selected && css.selected)}
                             key={model.id}
-                            title={model.name}
-                            disabled={busy}
+                            disabled={busy || imageIncompatible}
+                            aria-disabled={imageIncompatible || undefined}
+                            title={imageIncompatible ? t('input.imageModelRequired') : model.name}
                             onClick={() => { choose({ provider: group.id, model: model.id }) }}
                           >
                             <span className={css.optionCopy}>
@@ -308,6 +330,14 @@ export function ModelSelect(
                               {model.description !== undefined && (
                                 <span className={css.description}>{model.description}</span>
                               )}
+                              <span className={css.capability}>
+                                {model.inputModalities === undefined
+                                  ? t('input.unknown')
+                                  : model.inputModalities.includes('image')
+                                    ? t('input.vision')
+                                    : t('input.text')}
+                                {model.reasoning === undefined ? '' : ` · ${t('menu.effort')}`}
+                              </span>
                             </span>
                             <span className={css.check}>
                               {selected ? <IconCheckOutline16 /> : null}

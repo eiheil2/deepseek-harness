@@ -296,13 +296,14 @@ describe('mapUsage', () => {
       inputTokens: 27,
       outputTokens: 69,
       cacheReadTokens: 256,
+      cacheTelemetry: 'available',
       reasoningTokens: 24,
     })
   })
 
   it('falls back to prompt_cache_hit_tokens when details are absent', () => {
     expect(mapUsage({ prompt_tokens: 10, completion_tokens: 2, prompt_cache_hit_tokens: 8 }))
-      .toEqual({ inputTokens: 2, outputTokens: 2, cacheReadTokens: 8 })
+      .toEqual({ inputTokens: 2, outputTokens: 2, cacheReadTokens: 8, cacheTelemetry: 'available' })
   })
 
   it('omits optional fields when the wire omits them', () => {

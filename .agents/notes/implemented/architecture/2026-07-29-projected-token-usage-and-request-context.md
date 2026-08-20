@@ -28,7 +28,7 @@ The Web `StatsLine` reads both through the standard `useProjection` seat. Window
 
 ## Context occupancy is approximate, and that is the decision
 
-`pressureTokens` and `contextWindow` are independent last-wins fields, not one atomic observation. Switching models pairs a fresh capacity with the previous route's pressure until the next request reports usage, and the numerator describes the last request rather than the surface as it currently stands.
+`pressureTokens` and `contextWindow` are independent last-wins fields, not one atomic observation. Switching models clears the previous route's pressure until the next request reports usage, so a fresh capacity is never paired with another route's sample; the numerator still describes the last request rather than the surface as it currently stands.
 
 This was accepted deliberately. An occupancy percentage is a user-facing reference figure: nothing in the harness makes decisions from it, and compaction reads `measure()` directly instead. The TUI status line has always computed occupancy this way, dividing a `measure()` total by a capacity resolved separately for the selected model — so an atomic variant here would have been the outlier, not the norm.
 

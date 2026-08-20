@@ -57,6 +57,7 @@ export function mapUsage(usage: WireUsage): TokenUsage {
     inputTokens: usage.prompt_tokens - (cacheRead ?? 0),
     outputTokens: usage.completion_tokens,
     ...cacheRead !== undefined ? { cacheReadTokens: cacheRead } : {},
+    ...cacheRead !== undefined ? { cacheTelemetry: 'available' as const } : {},
     ...reasoning !== undefined ? { reasoningTokens: reasoning } : {},
   }
 }

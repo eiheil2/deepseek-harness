@@ -15,17 +15,18 @@ export interface TokenUsageProjection {
   outputTokens: number
   cacheReadTokens: number
   cacheWriteTokens: number
+  /** Cache fields are authoritative for every usage sample in the projection. */
+  cacheTelemetry?: 'available' | 'unavailable' | 'unknown' | 'partial'
 }
 
 /**
  * Approximate context occupancy for a status display.
  *
  * The fields, when present, are deliberately NOT one atomic request
- * observation: each is a last-wins record of a different moment. Switching
- * models can therefore pair a fresh capacity with the previous route's
- * pressure until the next request reports usage. This is an intentional trade
- * — the value is a user-facing reference, not a billing or gating input. See
- * the token-meter README for the full rationale.
+ * observation: each is a last-wins record of a different moment. A route
+ * switch clears the previous pressure sample until the new route reports one,
+ * so a fresh capacity is never paired with another model's usage. This remains
+ * a user-facing reference, not a billing or gating input.
  */
 export interface ContextPressureProjection {
   /**

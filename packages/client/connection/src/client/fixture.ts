@@ -825,6 +825,7 @@ interface FixtureTokenUsageProjection {
   outputTokens: number
   cacheReadTokens: number
   cacheWriteTokens: number
+  cacheTelemetry?: 'available' | 'unavailable' | 'unknown' | 'partial'
 }
 
 interface FixtureUsageSample {
@@ -867,6 +868,7 @@ function tokenUsageOf(log: readonly SessionEvent[]): FixtureTokenUsageProjection
     step: number
     buckets: FixtureTokenUsageProjection
   } | null = null
+  let telemetry: 'available' | 'unavailable' | 'unknown' | 'partial' = 'unknown'
   for (const event of log) {
     const sample = usageSampleOf(event)
     if (sample === undefined) continue
@@ -876,6 +878,12 @@ function tokenUsageOf(log: readonly SessionEvent[]): FixtureTokenUsageProjection
       cacheReadTokens: sample.usage.cacheReadTokens ?? 0,
       cacheWriteTokens: sample.usage.cacheWriteTokens ?? 0,
     }
+    const sampleTelemetry = sample.usage.cacheTelemetry ?? 'unknown'
+    telemetry = telemetry === 'unknown'
+      ? sampleTelemetry
+      : sampleTelemetry === telemetry
+        ? telemetry
+        : 'partial'
     const previous = last?.turn === sample.turn && last.step === sample.step
       ? last.buckets
       : undefined
@@ -885,7 +893,7 @@ function tokenUsageOf(log: readonly SessionEvent[]): FixtureTokenUsageProjection
     totals.cacheWriteTokens += buckets.cacheWriteTokens - (previous?.cacheWriteTokens ?? 0)
     last = { turn: sample.turn, step: sample.step, buckets }
   }
-  return totals
+  return { ...totals, ...telemetry === 'unknown' ? {} : { cacheTelemetry: telemetry } }
 }
 
 /** Fixture parallel of session-stats' whole-log counting and wall-time fold. */
@@ -1031,8 +1039,8 @@ function lastRequestContext(
 
 /**
  * Fixture parallel of token-meter's request-pressure projection: the last
- * provider-reported prompt size paired with the last recorded capacity. The
- * two need not come from one request — see the token-meter README. The host's
+ * provider-reported prompt size paired with the last recorded capacity on the
+ * same route. A route switch clears the prior pressure sample. The host's
  * `projectedTokens` is deliberately absent: reproducing it would mean
  * reimplementing the estimator client-side, and every consumer falls back to
  * the bare sample, so a fixture-driven view simply lags a compaction the way
@@ -1042,14 +1050,21 @@ function contextPressureOf(
   log: readonly SessionEvent[],
 ): { pressureTokens?: number; contextWindow?: number } {
   let pressureTokens: number | undefined
+  let route: string | undefined
+  let contextWindow: number | undefined
   for (const event of log) {
+    if (event.type === 'request/context') {
+      const nextRoute = `${event.data.provider}\u0000${event.data.model}`
+      if (nextRoute !== route) pressureTokens = undefined
+      route = nextRoute
+      contextWindow = event.data.contextWindow
+    }
     const sample = usageSampleOf(event)
     if (sample === undefined) continue
     pressureTokens = sample.usage.inputTokens
       + (sample.usage.cacheReadTokens ?? 0)
       + (sample.usage.cacheWriteTokens ?? 0)
   }
-  const contextWindow = lastRequestContext(log)?.contextWindow
   return {
     ...pressureTokens === undefined ? {} : { pressureTokens },
     ...contextWindow === undefined ? {} : { contextWindow },

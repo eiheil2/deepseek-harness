@@ -132,11 +132,15 @@ export type FinishReason = FinishReasonMap[keyof FinishReasonMap]
  * sum of the three). Adapters whose providers fold cache hits into a total
  * prompt count (DeepSeek's `prompt_tokens`) subtract them out.
  */
+export type CacheTelemetry = 'available' | 'unavailable' | 'unknown' | 'partial'
+
 export interface TokenUsage {
   inputTokens: number
   outputTokens: number
   cacheReadTokens?: number
   cacheWriteTokens?: number
+  /** Whether cache read/write fields are authoritative for this sample. */
+  cacheTelemetry?: CacheTelemetry
   reasoningTokens?: number
 }
 

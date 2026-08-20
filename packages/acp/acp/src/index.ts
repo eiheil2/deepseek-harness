@@ -89,6 +89,8 @@ interface SessionRecord {
   dispose: () => Promise<void>
   /** Ordered assistant-output delivery; every task contains its own failure. */
   outputTail: Promise<void>
+  /** Connection-owned cancellation for output not correlated to a live prompt. */
+  outputController: AbortController
   /** In-flight admission/turn/output lifecycle for exact settlement. */
   inflight: {
     resolve: (reason: StopReason) => void
@@ -104,6 +106,8 @@ interface SessionRecord {
     admissionDone: Promise<void>
     finishAdmission: () => void
     admissionController: AbortController
+    /** Cancellation for committed output conversion owned by this prompt. */
+    outputController: AbortController
     cancelRequested: boolean
     settlementStarted: boolean
     /** Conversion failure for committed output owned by this prompt's turn. */
@@ -155,6 +159,21 @@ export function apply(ctx: Context, config: AcpConfig): void {
     /* v8 ignore stop */
   }
 
+  /** Abandon the bridge's wait without pretending to cancel the SDK write. */
+  const waitForOutput = async (record: SessionRecord, inflight: NonNullable<SessionRecord['inflight']>): Promise<void> => {
+    if (inflight.cancelRequested) return
+    const signal = inflight.outputController.signal
+    if (signal.aborted) return
+    const cancelled = Promise.withResolvers<undefined>()
+    const onAbort = (): void => { cancelled.resolve(undefined) }
+    signal.addEventListener('abort', onAbort, { once: true })
+    try {
+      await Promise.race([record.outputTail, cancelled.promise])
+    } finally {
+      signal.removeEventListener('abort', onAbort)
+    }
+  }
+
   const rejectFromError = (
     inflight: NonNullable<SessionRecord['inflight']>,
     reason: Extract<TurnEndReason, { kind: 'error' }>,
@@ -178,7 +197,10 @@ export function apply(ctx: Context, config: AcpConfig): void {
         await record.agent.whenIdle()
         // session/event enqueues synchronously before the agent becomes idle;
         // reading the live tail here includes every committed output task.
-        await record.outputTail
+        // A cancelled prompt must not remain blocked on an ACP transport write;
+        // the SDK owns that promise and its rejection is still observed by the
+        // output chain. Normal prompts retain ordered delivery semantics.
+        await waitForOutput(record, inflight)
       }
       /* v8 ignore next -- this prompt owns the slot until this exact settlement clears it. */
       if (record.inflight !== inflight) return
@@ -225,10 +247,11 @@ export function apply(ctx: Context, config: AcpConfig): void {
     try {
       if (event.type === 'assistant/message') {
         const inflight = record.inflight?.turn === event.data.turn ? record.inflight : undefined
+        const outputSignal = inflight?.outputController.signal ?? record.outputController.signal
         const previous = record.outputTail
         const delivery = previous.then(async () => {
           for (const block of event.data.message.content) {
-            const content = await assistantBlockToAcp(ctx, block)
+            const content = await assistantBlockToAcp(ctx, block, outputSignal)
             if (content === undefined) continue
             await notify({
               sessionId: record.agent.session.id,
@@ -237,6 +260,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           }
         })
         record.outputTail = delivery.catch((error: unknown) => {
+          if (outputSignal.aborted) return
           // assistantBlockToAcp owns conversion failures and always throws Error.
           const failure = error as Error
           if (inflight !== undefined) inflight.outputError ??= failure
@@ -327,6 +351,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           agent: handle.agent,
           dispose: () => handle.dispose(),
           outputTail: Promise.resolve(),
+          outputController: new AbortController(),
           inflight: undefined,
         })
         return { sessionId }
@@ -341,6 +366,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
         const completion = Promise.withResolvers<StopReason>()
         const admission = Promise.withResolvers<void>()
         const admissionController = new AbortController()
+        const outputController = new AbortController()
         const inflight: NonNullable<SessionRecord['inflight']> = {
           resolve: completion.resolve,
           reject: completion.reject,
@@ -351,6 +377,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           admissionDone: admission.promise,
           finishAdmission: admission.resolve,
           admissionController,
+          outputController,
           cancelRequested: false,
           settlementStarted: false,
           outputError: undefined,
@@ -429,6 +456,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
         if (inflight !== undefined) {
           inflight.cancelRequested = true
           inflight.admissionController.abort(new Error('ACP prompt cancelled'))
+          inflight.outputController.abort(new Error('ACP prompt cancelled'))
           settleAfterQuiescence(record, inflight)
         }
         // Admission is not Agent work. Preserve unrelated producers until this
@@ -457,10 +485,12 @@ export function apply(ctx: Context, config: AcpConfig): void {
     // on persistence or scoped cleanup, and the top-level agents must not keep
     // running model and tool calls for its whole duration.
     for (const record of records) {
+      record.outputController.abort(new Error('ACP bridge disposed'))
       const inflight = record.inflight
       if (inflight !== undefined) {
         inflight.cancelRequested = true
         inflight.admissionController.abort(new Error('ACP bridge disposed'))
+        inflight.outputController.abort(new Error('ACP bridge disposed'))
         settleAfterQuiescence(record, inflight)
       }
       record.agent.cancel({ kind: 'user' })

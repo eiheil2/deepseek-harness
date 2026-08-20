@@ -115,6 +115,29 @@ describe('ACP prompt lifecycle', () => {
     await expect(prompt).resolves.toEqual({ stopReason: 'end_turn' })
   })
 
+  it('settles a cancelled prompt without waiting for ordered output delivery', async () => {
+    const script: StreamChunk[][] = []
+    harness = await makeBridgeHarness({ script })
+    const ref = await harness.attachments!.saveImage({ data: Uint8Array.of(4), mediaType: 'image/png' })
+    script.push([
+      { type: 'block-start', index: 0, blockType: 'image' },
+      { type: 'block-end', index: 0, block: { type: 'image', attachment: ref } },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ])
+    const readStarted = Promise.withResolvers<undefined>()
+    const delivery = Promise.withResolvers<undefined>()
+    harness.attachments!.beforeRead = () => {
+      readStarted.resolve(undefined)
+      return delivery.promise
+    }
+    const sessionId = await newSession(harness)
+    const prompt = harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
+    await readStarted.promise
+    await harness.client.cancel({ sessionId })
+    await expect(prompt).resolves.toEqual({ stopReason: 'cancelled' })
+    delivery.resolve(undefined)
+  })
+
   it('fails prompt delivery when a committed image attachment is missing', async () => {
     const missing = {
       attachmentId: `sha256:${'a'.repeat(64)}` as never,

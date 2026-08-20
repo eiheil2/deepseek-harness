@@ -124,6 +124,8 @@ export interface ModelCatalogModel {
   name: string
   /** Optional provider-supplied description. */
   description?: string
+  /** Input kinds the exact configured route declares; absence means the adapter did not say. */
+  inputModalities?: Array<'text' | 'image'>
   /** Exact-route reasoning metadata when the adapter exposes it. */
   reasoning?: ModelReasoning
 }

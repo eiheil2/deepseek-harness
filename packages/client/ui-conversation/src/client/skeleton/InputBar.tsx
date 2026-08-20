@@ -716,7 +716,10 @@ export function InputBar({
           </div>
           <div className={css.trailing}>
             {rightItems}
-            {renderSlot('conversation.input.model', { locked: modelSeatLocked })}
+            {renderSlot('conversation.input.model', {
+              locked: modelSeatLocked,
+              ...(input !== undefined && input.imageIds.length > 0 ? { imageInputActive: true } : {}),
+            })}
             <ContextMeter useProjection={useProjection} t={t} />
             {interruptible && (
               <Tooltip label={t('input.stop')} side="top" delayMs={500}>

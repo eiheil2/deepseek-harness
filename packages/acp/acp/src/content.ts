@@ -210,26 +210,31 @@ export async function admitAcpPrompt(
  * unsupported core output blocks stay off the automation wire.
  * @param ctx - bridge context carrying the authoritative attachment store.
  * @param block - committed core assistant block.
+ * @param signal - optional cancellation for attachment reads during prompt or bridge teardown.
  * @returns ACP text/image content, or undefined for non-output blocks.
  */
 export async function assistantBlockToAcp(
   ctx: Context,
   block: ContentBlock,
+  signal?: AbortSignal,
 ): Promise<AcpContentBlock | undefined> {
   if (block.type === 'text') {
     return block.text.length === 0 ? undefined : { type: 'text', text: block.text }
   }
   if (block.type !== 'image') return undefined
+  signal?.throwIfAborted()
   const attachments = ctx.get('attachments')
   if (attachments === undefined) {
     throw new AcpContentError('cannot deliver assistant image: no attachment store is mounted', 'internal')
   }
   let stored: Awaited<ReturnType<typeof attachments.readImage>>
   try {
-    stored = await attachments.readImage(block.attachment)
+    stored = await attachments.readImage(block.attachment, signal)
   } catch (error: unknown) {
+    signal?.throwIfAborted()
     throw new AcpContentError('cannot deliver assistant image: the attachment is unavailable or corrupt', 'internal', { cause: error })
   }
+  signal?.throwIfAborted()
   return {
     type: 'image',
     data: Buffer.from(stored.data).toString('base64'),

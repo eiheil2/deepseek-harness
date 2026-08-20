@@ -197,6 +197,32 @@ describe('tokenUsage session projection', () => {
     })
   })
 
+  it('does not claim cache telemetry when a provider omits cache metadata', async () => {
+    const { ctx, session } = await harness()
+    startStep(session, 1, 1)
+    usageChunk(session, { inputTokens: 9, outputTokens: 1, cacheReadTokens: 5 }, 1, 1)
+    expect(projected(ctx, session)).not.toHaveProperty('cacheTelemetry')
+  })
+
+  it('preserves authoritative cache telemetry from an adapter', async () => {
+    const { ctx, session } = await harness()
+    startStep(session, 1, 1)
+    usageChunk(session, {
+      inputTokens: 9, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, cacheTelemetry: 'available',
+    }, 1, 1)
+    expect(projected(ctx, session)).toMatchObject({ cacheTelemetry: 'available' })
+  })
+
+  it('marks mixed cache metadata as partial instead of inventing a hit rate', async () => {
+    const { ctx, session } = await harness()
+    startStep(session, 1, 1)
+    usageChunk(session, {
+      inputTokens: 9, outputTokens: 1, cacheReadTokens: 5, cacheTelemetry: 'available',
+    }, 1, 1)
+    finalUsage(session, { inputTokens: 4, outputTokens: 1, cacheTelemetry: 'unknown' }, 1, 1, [])
+    expect(projected(ctx, session)).toMatchObject({ cacheTelemetry: 'partial' })
+  })
+
   it('does not erase historical billing when the visible surface is replaced', async () => {
     const { ctx, session } = await harness()
     startStep(session, 1, 1)
@@ -333,7 +359,7 @@ describe('contextPressure session projection', () => {
     })
     recordContext(session, 'large', 256_000)
     expect(pressure(ctx, session)).toEqual({
-      pressureTokens: 100, projectedTokens: 100, contextWindow: 256_000,
+      contextWindow: 256_000,
     })
   })
 
@@ -343,7 +369,7 @@ describe('contextPressure session projection', () => {
     recordContext(session, 'small', 64_000)
     usageChunk(session, { inputTokens: 100, outputTokens: 10 }, 1, 1)
     recordContext(session, 'unknown')
-    expect(pressure(ctx, session)).toEqual({ pressureTokens: 100, projectedTokens: 100 })
+    expect(pressure(ctx, session)).toEqual({})
   })
 
   it('pushes no change for unrelated events or a restated capacity', async () => {
@@ -374,7 +400,7 @@ describe('contextPressure session projection', () => {
     const checkpoint = JSON.parse(JSON.stringify(
       ctx.sessionProjections.checkpoint(session),
     )) as ReturnType<typeof ctx.sessionProjections.checkpoint>
-    expect(checkpoint.contextPressure?.ver).toBe(4)
+    expect(checkpoint.contextPressure?.ver).toBe(5)
 
     await meterFiber.dispose()
     expect(ctx.sessionProjections.snapshot(session).values).not.toHaveProperty('contextPressure')

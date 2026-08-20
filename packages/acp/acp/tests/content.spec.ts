@@ -233,4 +233,24 @@ describe('ACP rich content codec', () => {
       type: 'image', data: 'AQ==', mimeType: 'image/png',
     })
   })
+
+  it('passes cancellation through slow assistant image reads', async () => {
+    const controller = new AbortController()
+    let observed: AbortSignal | undefined
+    const readImage = vi.fn(async (_ref: ImageAttachmentRef, signal?: AbortSignal) => {
+      observed = signal
+      await new Promise<never>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => { reject(new Error('cancelled')) }, { once: true })
+      })
+      throw new Error('unreachable')
+    })
+    const ctx = {
+      get: (name: string) => name === 'attachments' ? { readImage } : undefined,
+    } as unknown as Context
+    const pending = assistantBlockToAcp(ctx, { type: 'image', attachment: REF }, controller.signal)
+    await vi.waitFor(() => { expect(observed).toBe(controller.signal) })
+    controller.abort(new Error('cancelled'))
+    await expect(pending).rejects.toThrow('cancelled')
+    expect(readImage).toHaveBeenCalledWith(REF, controller.signal)
+  })
 })

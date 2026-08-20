@@ -214,6 +214,7 @@ describe('sessions domain schemas', () => {
           id: 'deepseek-v4-flash',
           name: 'DeepSeek V4 Flash',
           description: 'fast',
+          inputModalities: ['text', 'image'],
           reasoning: {
             efforts: [
               { id: 'off', name: 'Off' },
@@ -224,7 +225,7 @@ describe('sessions domain schemas', () => {
         }],
       }],
       failures: [{ id: 'broken', name: 'Broken', message: 'offline' }],
-    }).groups[0]?.models[0]?.id).toBe('deepseek-v4-flash')
+    }).groups[0]?.models[0]?.inputModalities).toEqual(['text', 'image'])
     expect(sessionSelectModelRequestSchema.parse({
       sessionId: 's1',
       provider: 'deepseek-official',

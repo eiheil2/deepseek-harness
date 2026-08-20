@@ -316,6 +316,8 @@ export async function reconcileInstructionContext(
   }
   const items: ChangeRenderItem[] = []
   const versionUpdates: InstructionVersionUpdate[] = []
+  let aggregateBytes = 0
+  let sourceBudgetExhausted = false
   const pushRemoval = (scope: string, path: string): void => {
     const change: AgentInstructionChange = { action: 'remove', scope, path }
     items.push({ change, file: { absolutePath: `removed:${scope}`, displayPath: path, content: '' } })
@@ -346,6 +348,7 @@ export async function reconcileInstructionContext(
     const addedAbsolutePaths: string[] = []
     const priorVersions = new Map(probedScopes.map(scope => [scope, versions.get(scope)]))
     for (const scope of probedScopes) {
+      if (sourceBudgetExhausted) break
       const previous = effective.get(scope)
       const probe = await probeScopeInstruction(scope, projectRoot, resolved, fileSystem, options.signal)
       if (probe.kind === 'unavailable') {
@@ -388,8 +391,24 @@ export async function reconcileInstructionContext(
         continue
       }
 
-      const file = await readScopeInstruction(probedFile, resolved.maxSourceBytes, fileSystem, options.signal)
+      const remainingBytes = resolved.maxAggregateSourceBytes - aggregateBytes
+      if (remainingBytes <= 0 || (probedFile.size !== undefined && probedFile.size > remainingBytes)) {
+        sourceBudgetExhausted = true
+        break
+      }
+      const file = await readScopeInstruction(
+        probedFile,
+        Math.min(resolved.maxSourceBytes, remainingBytes),
+        fileSystem,
+        options.signal,
+      )
       if (file === undefined) continue
+      const sourceBytes = Buffer.byteLength(file.content, 'utf8')
+      if (aggregateBytes + sourceBytes > resolved.maxAggregateSourceBytes) {
+        sourceBudgetExhausted = true
+        break
+      }
+      aggregateBytes += sourceBytes
       const currentDigest = instructionContentSha1(file.content)
       const trimmedDigest = trimmedInstructionDigest(file.content)
       if (registerKeptTrimmed(directory, trimmedDigest)) {

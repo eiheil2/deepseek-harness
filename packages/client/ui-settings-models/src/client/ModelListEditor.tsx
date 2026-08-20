@@ -116,6 +116,55 @@ function IconTrash(): ReactNode {
 /** The two token counts edited as K/M-suffixed text behind a row's disclosure. */
 type CapacityField = 'contextWindow' | 'maxTokens'
 
+export type InputMode = 'inherit' | 'text' | 'vision'
+export type ReasoningMode = 'inherit' | 'disabled' | 'standard' | 'extended' | 'openrouter' | 'binary'
+
+const STANDARD_REASONING_EFFORTS = { off: null, low: 'low', medium: 'medium', high: 'high' } as const
+const EXTENDED_REASONING_EFFORTS = { ...STANDARD_REASONING_EFFORTS, minimal: 'minimal', xhigh: 'xhigh', max: 'max' } as const
+const OPENROUTER_REASONING_EFFORTS = { ...EXTENDED_REASONING_EFFORTS, off: 'none' } as const
+const BINARY_REASONING_EFFORTS = { off: null, high: null } as const
+
+function objectOf(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+export function inputModeOf(model: ModelDraft): InputMode {
+  const input = model['input']
+  if (!Array.isArray(input) || input.length === 0) return 'inherit'
+  return input.includes('image') ? 'vision' : 'text'
+}
+
+export function inputPatch(mode: InputMode): Record<string, unknown> {
+  if (mode === 'inherit') return { input: undefined }
+  return { input: mode === 'vision' ? ['text', 'image'] : ['text'] }
+}
+
+export function reasoningModeOf(model: ModelDraft): ReasoningMode {
+  if (model['reasoningEfforts'] === undefined) return 'inherit'
+  if (model['reasoningEfforts'] === false) return 'disabled'
+  const format = objectOf(model['compat']).thinkingFormat
+  if (format === 'openrouter') return 'openrouter'
+  if (format === 'deepseek') return 'binary'
+  if ('max' in objectOf(model['reasoningEfforts'])) return 'extended'
+  return 'standard'
+}
+
+export function reasoningPatch(model: ModelDraft, mode: ReasoningMode, api: string | undefined): Record<string, unknown> {
+  const compat = objectOf(model['compat'])
+  const withoutReasoningCompat = Object.fromEntries(Object.entries(compat).filter(([key]) => key !== 'thinkingFormat' && key !== 'supportsReasoningEffort'))
+  const withCompat = (next: Record<string, unknown>): Record<string, unknown> => ({ ...withoutReasoningCompat, ...next })
+  const compatOrUndefined = (next: Record<string, unknown>): Record<string, unknown> | undefined =>
+    Object.keys(next).length === 0 ? undefined : next
+  if (mode === 'inherit') return { reasoningEfforts: undefined, compat: compatOrUndefined(withoutReasoningCompat) }
+  if (mode === 'disabled') return { reasoningEfforts: false, compat: compatOrUndefined(withoutReasoningCompat) }
+  if (mode === 'openrouter') return { reasoningEfforts: OPENROUTER_REASONING_EFFORTS, compat: withCompat({ thinkingFormat: 'openrouter' }) }
+  if (mode === 'binary') return { reasoningEfforts: BINARY_REASONING_EFFORTS, compat: withCompat({ thinkingFormat: 'deepseek', supportsReasoningEffort: false }) }
+  return {
+    reasoningEfforts: mode === 'extended' ? EXTENDED_REASONING_EFFORTS : STANDARD_REASONING_EFFORTS,
+    compat: api === 'openai-completions' ? withCompat({ thinkingFormat: 'openai', supportsReasoningEffort: true }) : compatOrUndefined(withoutReasoningCompat),
+  }
+}
+
 /**
  * What an empty capacity field is worth, shown as its placeholder so a row left
  * blank does not read as a model with no capacity at all.
@@ -210,7 +259,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     })
   }
 
-  const patch = (index: number, next: Record<string, string | number | undefined>): void => {
+  const patch = (index: number, next: Record<string, unknown>): void => {
     onChange(models.map((model, at) => {
       if (at !== index) return model
       // Rebuilt rather than spread over: an emptied optional field has to leave
@@ -428,6 +477,25 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
                     disabled={disabled}
                     onChange={(event) => { editCapacity(index, 'maxTokens', event.target.value) }}
                   />
+                </label>
+                <label className={styles['modelField']}>
+                  <span className={styles['modelFieldLabel']}>{t('modelInput')}</span>
+                  <select className={`${styles['input']} ${styles['selectInput']}`} value={inputModeOf(model)} aria-label={`${t('modelInput')} ${index + 1}`} disabled={disabled} onChange={(event) => { patch(index, inputPatch(event.target.value as InputMode)) }}>
+                    <option value="inherit">{t('modelInputInherit')}</option>
+                    <option value="text">{t('modelInputText')}</option>
+                    <option value="vision">{t('modelInputVision')}</option>
+                  </select>
+                </label>
+                <label className={styles['modelField']}>
+                  <span className={styles['modelFieldLabel']}>{t('modelReasoning')}</span>
+                  <select className={`${styles['input']} ${styles['selectInput']}`} value={reasoningModeOf(model)} aria-label={`${t('modelReasoning')} ${index + 1}`} disabled={disabled} onChange={(event) => { patch(index, reasoningPatch(model, event.target.value as ReasoningMode, probe.api)) }}>
+                    <option value="inherit">{t('modelReasoningInherit')}</option>
+                    <option value="disabled">{t('modelReasoningDisabled')}</option>
+                    <option value="standard">{t('modelReasoningStandard')}</option>
+                    <option value="extended">{t('modelReasoningExtended')}</option>
+                    {probe.api === 'openai-completions' ? <option value="openrouter">{t('modelReasoningOpenRouter')}</option> : null}
+                    {probe.api === 'openai-completions' ? <option value="binary">{t('modelReasoningBinary')}</option> : null}
+                  </select>
                 </label>
               </div>
             )

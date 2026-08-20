@@ -169,7 +169,13 @@ describe('formatters', () => {
 })
 
 describe('StatsLine', () => {
-  const USAGE = { uncachedInputTokens: 10, outputTokens: 5, cacheReadTokens: 90, cacheWriteTokens: 0 }
+  const USAGE = {
+    uncachedInputTokens: 10,
+    outputTokens: 5,
+    cacheReadTokens: 90,
+    cacheWriteTokens: 0,
+    cacheTelemetry: 'available' as const,
+  }
 
   /** A whole-log sessionStats value: zeros plus overrides. */
   function sessionStats(overrides: Record<string, number>): Record<string, number> {
@@ -280,9 +286,17 @@ describe('StatsLine', () => {
     expect(contextOccupancy({ pressureTokens: 32_000 })).toBeNull()
     expect(contextOccupancy({ contextWindow: 128_000 })).toBeNull()
     expect(contextOccupancy(undefined)).toBeNull()
-    // Capacity and the sample are independent last-wins fields, so a model
-    // switch can pair a smaller new window with the previous route's prompt.
+    // The pure formatter accepts independent fields; the host projection now
+    // clears the numerator on a route switch before this function is called.
     expect(contextOccupancy({ pressureTokens: 300_000, contextWindow: 128_000 })?.percent).toBe(100)
+  })
+
+  it('hides cache hit when billed cache fields have unknown provenance', () => {
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    const view = render(<StatsLine {...props(source, {
+      tokenUsage: { uncachedInputTokens: 10, outputTokens: 7, cacheReadTokens: 90, cacheWriteTokens: 0 },
+    })} />)
+    expect(view.container.textContent).toBe('1 turns · 1 steps| Input 100 tok · Output 7 tok')
   })
 
   it('drops every token group when no projection is composed', () => {
@@ -370,6 +384,7 @@ describe('StatsLine', () => {
         outputTokens: 7,
         cacheReadTokens: 90,
         cacheWriteTokens: 100,
+        cacheTelemetry: 'available',
       },
     })} />)
     expect(view.container.textContent)

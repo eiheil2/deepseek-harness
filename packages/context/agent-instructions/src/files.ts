@@ -59,6 +59,7 @@ interface DiscoverOptions {
 interface LoadOptions extends DiscoverOptions {
   maxBytes: number
   maxSourceBytes?: number
+  maxAggregateSourceBytes?: number
   replacePreviousBaseline?: boolean
 }
 
@@ -409,11 +410,19 @@ export async function loadBaselineInstructionSet(
   const config = resolveConfig(options)
   if (config.maxBytes <= 0 || !Number.isFinite(config.maxBytes)) return undefined
   if (config.maxSourceBytes <= 0 || !Number.isFinite(config.maxSourceBytes)) return undefined
+  if (config.maxAggregateSourceBytes <= 0 || !Number.isFinite(config.maxAggregateSourceBytes)) return undefined
   const discovered = await discoverInstructionFiles(options, fileSystem)
   const loaded: LoadedInstructionFile[] = []
+  let aggregateBytes = 0
   for (const file of discovered) {
-    const content = await readBounded(file, config.maxSourceBytes, fileSystem, options.signal)
+    const remainingBytes = config.maxAggregateSourceBytes - aggregateBytes
+    if (remainingBytes <= 0) break
+    if (file.size !== undefined && file.size > remainingBytes) continue
+    const content = await readBounded(file, Math.min(config.maxSourceBytes, remainingBytes), fileSystem, options.signal)
     if (content !== undefined) {
+      const sourceBytes = Buffer.byteLength(content, 'utf8')
+      if (aggregateBytes + sourceBytes > config.maxAggregateSourceBytes) break
+      aggregateBytes += sourceBytes
       loaded.push({
         absolutePath: file.absolutePath,
         displayPath: file.displayPath,

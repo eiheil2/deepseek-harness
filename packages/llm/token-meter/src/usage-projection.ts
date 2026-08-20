@@ -3,7 +3,7 @@
  */
 
 import { z } from 'zod'
-import type { TokenUsage } from '@deepseek-ai/dsh-llm'
+import type { CacheTelemetry, TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type { ContextPressureProjection, TokenUsageProjection } from './projection.ts'
@@ -14,11 +14,13 @@ interface UsageSample {
   turn: number
   step: number
   buckets: TokenUsageProjection
+  telemetry: CacheTelemetry
 }
 
 interface TokenUsageState {
   totals: TokenUsageProjection
   last: UsageSample | null
+  telemetry?: CacheTelemetry
 }
 
 const zeroBuckets = (): TokenUsageProjection => ({
@@ -34,6 +36,17 @@ const bucketsFrom = (usage: TokenUsage): TokenUsageProjection => ({
   cacheReadTokens: usage.cacheReadTokens ?? 0,
   cacheWriteTokens: usage.cacheWriteTokens ?? 0,
 })
+
+const telemetryFrom = (usage: TokenUsage): CacheTelemetry => usage.cacheTelemetry ?? 'unknown'
+
+const combineTelemetry = (previous: CacheTelemetry | undefined, next: CacheTelemetry): CacheTelemetry => {
+  if (previous === undefined) return next
+  if (previous === 'unknown') return next === 'unknown' ? 'unknown' : 'partial'
+  if (next === 'unknown') return 'partial'
+  if (previous === next) return previous
+  if (previous === 'partial' || next === 'partial') return 'partial'
+  return 'partial'
+}
 
 const bucketsEqual = (left: TokenUsageProjection, right: TokenUsageProjection): boolean =>
   left.uncachedInputTokens === right.uncachedInputTokens
@@ -57,7 +70,8 @@ const projectionSchema = z.object({
   outputTokens: z.number().int().nonnegative(),
   cacheReadTokens: z.number().int().nonnegative(),
   cacheWriteTokens: z.number().int().nonnegative(),
-}).strict()
+  cacheTelemetry: z.enum(['available', 'unavailable', 'unknown', 'partial']).optional(),
+}).strict() as unknown as z.ZodType<TokenUsageProjection>
 
 // Cast for the optional values: under exactOptionalPropertyTypes zod infers
 // `number | undefined` where the interface declares absent-or-number fields.
@@ -84,6 +98,8 @@ const usageOf = (event: SessionEvent): TokenUsage | undefined =>
  * O(1) running surface total needed to carry the newest sample forward.
  */
 interface ContextPressureState {
+  /** Route identity owning the latest capacity and pressure sample. */
+  route?: string
   contextWindow?: number
   pressureTokens?: number
   /** Running heuristic total over the current surface ({@link foldSurfaceProjection}). */
@@ -123,20 +139,26 @@ ProjectionDefinition<'tokenUsage', TokenUsageState> = {
     }
 
     const buckets = bucketsFrom(usage)
+    const telemetry = telemetryFrom(usage)
     const previous = state.last !== null
       && state.last.turn === turn
       && state.last.step === step
-      ? state.last.buckets
+      ? state.last
       : undefined
-    if (previous !== undefined && bucketsEqual(previous, buckets)) return state
+    if (previous !== undefined && bucketsEqual(previous.buckets, buckets) && previous.telemetry === telemetry) return state
 
+    const nextTelemetry = combineTelemetry(state.telemetry, telemetry)
     return {
-      totals: addReplacing(state.totals, previous, buckets),
-      last: { turn, step, buckets },
+      totals: {
+        ...addReplacing(state.totals, previous?.buckets, buckets),
+        ...nextTelemetry === 'unknown' ? {} : { cacheTelemetry: nextTelemetry },
+      },
+      last: { turn, step, buckets, telemetry },
+      telemetry: nextTelemetry,
     }
   },
   view: state => state.totals,
-  stateVersion: 1,
+  stateVersion: 2,
 }
 
 /**
@@ -169,7 +191,12 @@ ProjectionDefinition<'contextPressure', ContextPressureState> = {
     const fold = foldSurfaceProjection(state.claim, event)
     let next = state
     if (event.type === 'request/context') {
+      const route = `${event.data.provider}\u0000${event.data.model}`
       const contextWindow = event.data.contextWindow
+      if (route !== state.route) {
+        const { pressureTokens: _pressure, sampledSurfaceTokens: _sampled, ...withoutOldSample } = next
+        next = { ...withoutOldSample, route }
+      }
       if (contextWindow !== state.contextWindow) {
         if (contextWindow !== undefined) {
           next = { ...next, contextWindow }
@@ -202,5 +229,5 @@ ProjectionDefinition<'contextPressure', ContextPressureState> = {
       ? {}
       : { projectedTokens: Math.max(0, pressureTokens + surfaceTokens - sampledSurfaceTokens) },
   }),
-  stateVersion: 4,
+  stateVersion: 5,
 }

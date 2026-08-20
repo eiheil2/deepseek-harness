@@ -107,6 +107,7 @@ export function formatDuration(ms: number): string {
  * @returns rounded integer percent, or null when no input was billed.
  */
 export function cacheHitPercent(usage: TokenUsageProjection): number | null {
+  if (usage.cacheTelemetry !== 'available') return null
   const denominator = billedInputTokens(usage)
   return denominator === 0
     ? null

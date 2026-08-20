@@ -124,6 +124,10 @@
   --meter-tint: var(--dsw-static-blue-450);
 }
 
+.colorOther {
+  --meter-tint: var(--dsw-alias-label-tertiary);
+}
+
 .rows {
   margin: 6px 0 0;
 }

@@ -17,14 +17,15 @@ import { toPiReplayState } from './replay.ts'
 /**
  * Map pi-ai usage (reasoning folded into output by pi-ai).
  * @param usage - cumulative usage from the terminal pi-ai event.
- * @returns harness counts; cache fields appear only when non-zero (pi-ai reports zeros, not absence).
+ * @returns harness counts; pi-ai reports cache fields authoritatively, including zero values.
  */
 export function mapUsage(usage: PiUsage): TokenUsage {
   return {
     inputTokens: usage.input,
     outputTokens: usage.output,
-    ...usage.cacheRead > 0 ? { cacheReadTokens: usage.cacheRead } : {},
-    ...usage.cacheWrite > 0 ? { cacheWriteTokens: usage.cacheWrite } : {},
+    cacheReadTokens: usage.cacheRead,
+    cacheWriteTokens: usage.cacheWrite,
+    cacheTelemetry: 'available',
   }
 }
 

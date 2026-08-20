@@ -512,6 +512,28 @@ describe('workspace context instruction discovery', () => {
     }
   })
 
+  it('enforces an aggregate source budget before rendering the baseline', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'A'.repeat(40))
+      await write(join(root, 'CLAUDE.md'), 'B'.repeat(40))
+      const loaded = await loadBaselineInstructions({
+        cwd: root,
+        dshHome: home,
+        maxBytes: 4096,
+        maxSourceBytes: 100,
+        maxAggregateSourceBytes: 50,
+      })
+      expect(loaded?.text).toContain('A'.repeat(40))
+      expect(loaded?.text).not.toContain('B'.repeat(40))
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('honors configured instruction candidates that exclude CLAUDE.md', async () => {
     const root = await tempRepo()
     const home = await tempRepo()

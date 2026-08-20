@@ -112,6 +112,18 @@ describe('ContextMeter', () => {
     expect(panel.getElementsByClassName(segmentClass)).toHaveLength(1)
   })
 
+  it('shows provider-only remainder instead of hiding the difference from estimates', () => {
+    const view = meter({
+      contextPressure: { pressureTokens: 111_000, contextWindow: 1_000_000 },
+      contextBreakdown: { systemTokens: 4_500, toolsTokens: 8_600, messageTokens: 81_700 },
+    })
+    fireEvent.click(view.getByRole('button', { name: '上下文已用 11%' }))
+    const panel = view.container.querySelector('[role="dialog"]')!
+    expect(panel.textContent).toContain('~16.2K')
+    expect(panel.textContent).toContain('其他请求开销')
+    expect(panel.getElementsByClassName(segmentClass)).toHaveLength(4)
+  })
+
   it('closes when capacity disappears and stays closed when it returns', () => {
     let values: Record<string, unknown> = {
       contextPressure: { pressureTokens: 32_000, contextWindow: 128_000 },

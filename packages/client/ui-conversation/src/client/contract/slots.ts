@@ -579,6 +579,8 @@ export interface ComposerBarInjected {
 export interface InputControlOwnerProps {
   /** Session-removed lock (the bar's chrome disable state). */
   locked: boolean
+  /** True while the composer draft contains an image that the next model must accept. */
+  imageInputActive?: boolean
 }
 
 /** Full composer-bar props: standard kit & owner share & control-seat render share & injected share (hooks bound) & locale seat. */

@@ -31,6 +31,29 @@ const ROWS = [
   { key: 'messageTokens', label: 'context.messages', color: css.colorMessages },
 ] as const
 
+const OTHER_ROW = { key: 'otherTokens', label: 'context.other', color: css.colorOther } as const
+
+type BreakdownRow = typeof ROWS[number] | typeof OTHER_ROW
+
+/**
+ * Add the provider-only remainder to the heuristic composition. Provider
+ * tokenizers count framing, serialized schemas, and language-specific pieces
+ * differently from the fixed local estimator; hiding that remainder made the
+ * visible rows appear to lose tokens from the headline total.
+ */
+export function contextBreakdownRows(
+  breakdown: { systemTokens: number; toolsTokens: number; messageTokens: number } | undefined,
+  usedTokens: number,
+): Array<BreakdownRow & { tokens: number }> {
+  if (breakdown === undefined) return []
+  const rows = ROWS.map(row => ({ ...row, tokens: breakdown[row.key] }))
+  const estimatedTotal = rows.reduce((total, row) => total + row.tokens, 0)
+  const remainder = Math.max(0, usedTokens - estimatedTotal)
+  return remainder > 0
+    ? [...rows, { ...OTHER_ROW, tokens: remainder }]
+    : rows
+}
+
 export interface ContextMeterProps {
   useProjection: UseProjection
   /** The owning bar's locale seat, passed down as a plain prop. */
@@ -80,12 +103,11 @@ export function ContextMeter({ useProjection, t }: ContextMeterProps) {
   // breakdown only proportions its colored parts. A zero-width part is dropped
   // instead of rendered: `.segment`'s min-width keeps a hairline part visible,
   // which at 0% occupancy would draw a filled bar over an empty context.
-  const breakdownTotal = breakdown === undefined
-    ? 0
-    : breakdown.systemTokens + breakdown.toolsTokens + breakdown.messageTokens
+  const breakdownRows = contextBreakdownRows(breakdown, context.usedTokens)
+  const breakdownTotal = breakdownRows.reduce((total, row) => total + row.tokens, 0)
   const parts = breakdown === undefined || breakdownTotal === 0
     ? [{ key: 'total', color: undefined, width: percent }]
-    : ROWS.map(row => ({ key: row.key, color: row.color, width: percent * breakdown[row.key] / breakdownTotal }))
+    : breakdownRows.map(row => ({ key: row.key, color: row.color, width: percent * row.tokens / breakdownTotal }))
   const segments = parts.filter(part => part.width > 0)
 
   return (
@@ -133,15 +155,15 @@ export function ContextMeter({ useProjection, t }: ContextMeterProps) {
               />
             ))}
           </div>
-          {breakdown !== undefined && (
+          {breakdownRows.length > 0 && (
             <dl className={css.rows}>
-              {ROWS.map(row => (
+              {breakdownRows.map(row => (
                 <div key={row.key} className={css.row}>
                   <dt>
                     <span className={`${css.swatch} ${row.color}`} aria-hidden />
                     {t(row.label)}
                   </dt>
-                  <dd>{`~${formatTokens(breakdown[row.key])}`}</dd>
+                  <dd>{`~${formatTokens(row.tokens)}`}</dd>
                 </div>
               ))}
             </dl>

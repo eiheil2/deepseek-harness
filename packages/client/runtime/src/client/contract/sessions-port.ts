@@ -7,8 +7,20 @@
  * dependency.
  */
 
-import type { SessionId, WorkspaceId } from '@deepseek-ai/dsh-api-remotes/client'
+import type { RpcError, SessionId, WorkspaceId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ObservableSnapshot } from './store.ts'
+
+/** Structured session-create failure shared with Workspace recovery logic. */
+export class SessionCreateError extends Error {
+  override readonly name = 'SessionCreateError'
+
+  constructor(
+    readonly rpcError: RpcError,
+    readonly requestedSessionId: SessionId | undefined,
+  ) {
+    super(`session create failed: ${rpcError.code}: ${rpcError.message}`)
+  }
+}
 
 /** Session-list row facts sibling domains read: recency, blank-reuse eligibility, and its cwd canon. */
 export interface SessionsPortSummary {

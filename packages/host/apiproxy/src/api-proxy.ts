@@ -297,6 +297,9 @@ async function buildModelCatalog(ctx: Context): Promise<{
           id: model.id,
           name: model.name,
           ...model.description === undefined ? {} : { description: model.description },
+          ...resolved.inputModalities === undefined
+            ? {}
+            : { inputModalities: [...resolved.inputModalities] },
           ...reasoning === undefined ? {} : { reasoning },
         }
       }))

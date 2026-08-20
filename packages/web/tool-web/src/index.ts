@@ -24,7 +24,7 @@ export const name = 'tool-web'
 export const inject = ['tools', 'web', 'systemPrompt']
 
 /** Default cooperative tool-call timeout budget (ms) for the web tools. */
-export const DEFAULT_WEB_TOOL_TIMEOUT_MS = 30_000
+export const DEFAULT_WEB_TOOL_TIMEOUT_MS = 120_000
 
 /**
  * Default cap on one `web_fetch` output and on source characters converted
@@ -43,9 +43,9 @@ export interface Config {
   searchMaxResults?: number
   /** Upper bound on queries accepted by one `web_search` call. */
   searchMaxQueries?: number
-  /** Cooperative timeout budget (ms) for `web_fetch`. Defaults to 30000. */
+  /** Cooperative timeout budget (ms) for `web_fetch`. Defaults to 120000. */
   fetchTimeoutMs?: number
-  /** Cooperative timeout budget (ms) for `web_search`. Defaults to 30000. */
+  /** Cooperative timeout budget (ms) for `web_search`. Defaults to 120000. */
   searchTimeoutMs?: number
   /** Cap on source characters converted and complete `web_fetch` output characters. Defaults to 200000. */
   fetchMaxOutputChars?: number
@@ -74,7 +74,7 @@ function assertPositiveInteger(name: string, value: number): void {
 /**
  * Register the enabled web tools. `search`/`fetch` default to true; a product
  * that wants only one disables the other in config. Each tool's cooperative
- * timeout budget (`fetchTimeoutMs`/`searchTimeoutMs`, default 30000) is resolved
+ * timeout budget (`fetchTimeoutMs`/`searchTimeoutMs`, default 120000) is resolved
  * here and attached to the tool as `ToolDefinition.timeoutMs` for
  * `@deepseek-ai/dsh-tool-call-timeout-policy` to enforce. The tools' disposers are
  * fiber-scoped (the effect-based registries clean up on dispose), so no manual

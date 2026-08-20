@@ -136,6 +136,30 @@ describe('request-level dynamic profiles', () => {
     expect(server.headers[1]?.authorization).toBe('Bearer pk-two')
   })
 
+  it('applies a changed model input capability to the next resolution without re-registering the route', async () => {
+    const dir = await home()
+    const profile: LlmPiAi.PiAiProviderProfile = {
+      api: 'openai-responses',
+      baseURL: 'https://gateway.example/v1',
+      models: [{ id: 'live-model', input: ['text'] }],
+    }
+    const ctx = await boot(dir, { providers: { gateway: profile } })
+
+    await expect(ctx.llm.resolveModelInfo('gateway', 'live-model')).resolves.toMatchObject({
+      inputModalities: ['text'],
+    })
+
+    await ctx.settings.mutate(NS, [{
+      op: 'set',
+      path: ['providers', 'gateway', 'models'],
+      value: [{ id: 'live-model', input: ['text', 'image'] }],
+    }])
+
+    await expect(ctx.llm.resolveModelInfo('gateway', 'live-model')).resolves.toMatchObject({
+      inputModalities: ['text', 'image'],
+    })
+  })
+
   it('re-registers routes in place when a captured retry policy changes', async () => {
     const dir = await home()
     const ctx = await boot(dir, { providers: { openai: {} } })

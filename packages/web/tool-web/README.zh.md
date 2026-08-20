@@ -25,8 +25,8 @@
 | `fetch` | `true` | 注册 `web_fetch`。 |
 | `searchMaxResults` | `8` | 一次 `web_search` 调用返回的来源数量上限（seam 截断各提供方列表；工具还会限制多查询组合列表）。 |
 | `searchMaxQueries` | `4` | 一次 `web_search` 调用接受的查询数量上限。配置值会出现在提示词指引与 schema 描述中。 |
-| `fetchTimeoutMs` | `30000` | `web_fetch` 的协作式工具调用超时预算（ms）。 |
-| `searchTimeoutMs` | `30000` | `web_search` 的协作式工具调用超时预算（ms）。 |
+| `fetchTimeoutMs` | `120000` | `web_fetch` 的协作式工具调用超时预算（ms）。 |
+| `searchTimeoutMs` | `120000` | `web_search` 的协作式工具调用超时预算（ms）。 |
 | `fetchMaxOutputChars` | `200000` | 同步转换的源字符数与单次完整 `web_fetch` 输出的上限（状态头、渲染后的主体与页脚合并计算）；主体被截断时，在能容纳的情况下附带截断提示。 |
 
 `searchMaxQueries` 在完全相同的字符串去重前限制可接受数组、提供方请求扇出与组合后的提供方答案增长；校验会在任何搜索开始前拒绝超限数组，随后分发只保留每个查询第一次出现的位置。该设置与各提供方自己的 `maxUses` 等控制项共同构成产品的搜索预算；通用 seam 不公开提供方内部的原生搜索计数。`fetchTimeoutMs`／`searchTimeoutMs` 声明每个工具的协作式超时预算（附加为 `ToolDefinition.timeoutMs`），由 [`@deepseek-ai/dsh-tool-call-timeout-policy`](../../guard/timeout-policy/README.md) 强制执行；面向模型的 schema 不公开超时参数。`fetchMaxOutputChars` 同时限制同步转换工作量和完整渲染结果：只转换至多该数量的源字符，随后对状态头、转换后的前缀和截断提示合并设限。默认值为本地提供方的 100,000 字符主体上限留出余量，但渲染膨胀仍可能使最终上限截断结果。

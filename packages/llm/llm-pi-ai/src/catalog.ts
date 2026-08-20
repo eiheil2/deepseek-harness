@@ -147,6 +147,39 @@ const CHAT_TEMPLATE_VAR_GATE: Record<PiAiChatTemplateVar, true> = {
 export const CHAT_TEMPLATE_VARS = Object.keys(CHAT_TEMPLATE_VAR_GATE) as readonly PiAiChatTemplateVar[]
 
 let providerIndex: Map<string, Provider> | undefined
+let capacityHintIndex: Map<string, CatalogCapacityHint> | undefined
+
+export interface CatalogCapacityHint {
+  contextWindow?: number
+  maxTokens?: number
+}
+
+function hintKey(id: string, api: string): string {
+  return `${api}\u0000${id}`
+}
+
+function catalogCapacityHints(): Map<string, CatalogCapacityHint> {
+  if (capacityHintIndex !== undefined) return capacityHintIndex
+  const candidates = new Map<string, { contextWindows: Set<number>; maxTokens: Set<number> }>()
+  for (const provider of getBuiltinProviders()) {
+    for (const model of getBuiltinModels(provider)) {
+      const key = hintKey(model.id, model.api)
+      const entry = candidates.get(key) ?? { contextWindows: new Set(), maxTokens: new Set() }
+      entry.contextWindows.add(model.contextWindow)
+      entry.maxTokens.add(model.maxTokens)
+      candidates.set(key, entry)
+    }
+  }
+  capacityHintIndex = new Map([...candidates].map(([key, values]) => [key, {
+    ...values.contextWindows.size === 1 ? { contextWindow: [...values.contextWindows][0] } : {},
+    ...values.maxTokens.size === 1 ? { maxTokens: [...values.maxTokens][0] } : {},
+  }]))
+  return capacityHintIndex
+}
+
+export function catalogCapacityHint(id: string, api: string): CatalogCapacityHint {
+  return { ...catalogCapacityHints().get(hintKey(id, api)) }
+}
 
 /**
  * Installed catalog providers by id, constructed once. Each entry owns the API
@@ -868,11 +901,14 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
     // discloses nothing but ids still yields a serviceable route. The fallback
     // is a guess by construction, which is why it is a configurable route field
     // rather than a constant buried here.
-    const contextWindow = entry.contextWindow ?? base?.contextWindow ?? request.defaultContextWindow
+    const capacityHint = base === undefined ? catalogCapacityHint(entry.id, api) : undefined
+    const contextWindow = entry.contextWindow ?? base?.contextWindow
+      ?? capacityHint?.contextWindow ?? request.defaultContextWindow
     if (!Number.isInteger(contextWindow) || contextWindow <= 0) {
       invalid(provider, `model "${entry.id}" contextWindow must be a positive integer`)
     }
-    const maxTokens = entry.maxTokens ?? base?.maxTokens ?? request.defaultMaxTokens
+    const maxTokens = entry.maxTokens ?? base?.maxTokens
+      ?? capacityHint?.maxTokens ?? request.defaultMaxTokens
     if (!Number.isInteger(maxTokens) || maxTokens <= 0) {
       invalid(provider, `model "${entry.id}" maxTokens must be a positive integer`)
     }

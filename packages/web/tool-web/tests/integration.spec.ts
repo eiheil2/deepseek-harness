@@ -42,7 +42,7 @@ beforeEach(async () => {
   await ctx.plugin(WebFetchLocal, {})
   await ctx.plugin(WebSearchExa, { apiKey: 'exa-key', baseURL: 'https://api.exa.test' })
   // The shipped deployment shape: the tool-call budget is declared by tool-web
-  // config (default 30s, attached as ToolDefinition.timeoutMs) and enforced by
+  // config (default 120s, attached as ToolDefinition.timeoutMs) and enforced by
   // the zero-config timeout-policy plugin, set above the provider backstop so the
   // policy normally wins.
   await ctx.plugin(TimeoutPolicy)

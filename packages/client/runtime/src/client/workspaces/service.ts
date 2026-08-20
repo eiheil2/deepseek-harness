@@ -7,7 +7,7 @@ import type {
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
-import type { SessionsPort, SessionsPortList } from '../contract/sessions-port.ts'
+import { SessionCreateError, type SessionsPort, type SessionsPortList } from '../contract/sessions-port.ts'
 import type { IWorkspaces } from '../contract/workspaces.ts'
 import { WorkspaceManager, type WorkspaceListPhase } from './manager.ts'
 
@@ -109,7 +109,20 @@ export class WorkspaceRuntime implements IWorkspaces {
         && workspace.sessionIds.includes(summary.id)
         && !archived.includes(summary.id)) return summary.id
     }
-    const attempt = this.sessions.create({ workspaceId })
+    const attempt = this.sessions.create({ workspaceId }).catch((error: unknown) => {
+      // A session can be published before Workspace accounting fails. Recover
+      // only that exact partial success; retrying would create a duplicate.
+      if (error instanceof SessionCreateError
+        && error.rpcError.code === 'workspace-attach-failed'
+        && error.rpcError.details.workspaceId === workspaceId) {
+        const published = error.rpcError.details.sessionId
+        if (this.sessions.list.getSnapshot().byId[published] !== undefined) {
+          console.warn('session created but Workspace attachment failed; opening Ungrouped:', error)
+          return published
+        }
+      }
+      throw error
+    })
       .finally(() => { this.connecting.delete(workspaceId) })
     this.connecting.set(workspaceId, attempt)
     return attempt
