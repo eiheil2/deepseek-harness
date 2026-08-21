@@ -1,0 +1,45 @@
+name: Sync repaired runtime release notes
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - '.github/release-notes/custom-runtime.md'
+      - '.github/workflows/custom-runtime-notes.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: repaired-runtime-release-notes
+  cancel-in-progress: true
+
+env:
+  RELEASE_TAG: dsh-custom-v0.1.0-rc.8-fullfix.3
+  RELEASE_COMMIT: a5d33a75bfd75362bc9a55f33a80442d26785b7a
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Update current repaired runtime release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          {
+            echo "# DSH repaired preinstalled runtimes ${RELEASE_TAG}"
+            echo
+            echo "Built from commit \`${RELEASE_COMMIT}\`. Each asset includes a matching SHA-256 file."
+            echo
+            cat .github/release-notes/custom-runtime.md
+          } > "$RUNNER_TEMP/release-notes.md"
+          gh release edit "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "DSH repaired preinstalled runtimes ${RELEASE_TAG}" \
+            --notes-file "$RUNNER_TEMP/release-notes.md"
