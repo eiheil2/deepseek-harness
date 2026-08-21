@@ -22,6 +22,25 @@ npx @deepseek-ai/dsh web
 
 The command starts the Web UI at `http://127.0.0.1:3080` by default and opens it in the default browser for a local launch. An SSH launch only prints the host URL because the SSH client or editor owns the local forwarded address. Pass `--no-open` to run the server without opening a browser. See [Web UI guide](docs/user/guide/index.md).
 
+### Install our patched runtime
+
+The official npm package and this fork's patched runtime are different
+distributions. The scripts in [`install/`](install/README.md) download only our
+GitHub Release asset and never fall back to the official package.
+
+```sh
+# Linux or WSL2 x64 (Ubuntu-built runtime)
+sh install/install-linux.sh
+
+# macOS or another Unix-like system
+sh install/install.sh
+```
+
+Windows users can run `install/install.cmd` or `install/install.ps1`. The
+installer requires Node.js `22.19+` or `24+`. The current patched release is
+`dsh-custom-v0.1.0-rc.8-patched.1`; choose another patched tag with
+`DSH_RELEASE_TAG`.
+
 ### Run from source
 
 To run from a repository checkout:

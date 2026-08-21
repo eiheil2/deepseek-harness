@@ -22,6 +22,24 @@ npx @deepseek-ai/dsh web
 
 该命令默认会在 `http://127.0.0.1:3080` 启动 Web UI，本机启动时还会用默认浏览器打开页面。通过 SSH 启动时只打印宿主机 URL，因为本地转发地址由 SSH 客户端或编辑器持有。传入 `--no-open` 可仅运行服务器而不打开浏览器。详见 [Web UI 指南](docs/user/guide/index.md)。
 
+### 安装我们的修复版运行时
+
+官方 npm 包和这个 fork 中的修复版是两个不同的发行版本。`install/`
+目录中的脚本只从我们的 GitHub Release 下载运行包，不会回退到官方 npm
+包。具体说明见 [`install/README.md`](install/README.md)。
+
+```sh
+# Linux 或 WSL2 x64（由 Ubuntu 构建）
+sh install/install-linux.sh
+
+# macOS 或其他 Unix-like 系统
+sh install/install.sh
+```
+
+Windows 用户可以运行 `install/install.cmd` 或 `install/install.ps1`。安装器
+需要 Node.js `22.19+` 或 `24+`。当前修复版 tag 是
+`dsh-custom-v0.1.0-rc.8-patched.1`，可通过 `DSH_RELEASE_TAG` 选择其他修复版。
+
 ### 从源码运行
 
 如需从仓库源码运行：
