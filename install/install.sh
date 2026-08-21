@@ -3,7 +3,7 @@
 set -eu
 
 REPOSITORY=${DSH_REPOSITORY:-eiheil2/deepseek-harness}
-RELEASE_TAG=${DSH_RELEASE_TAG:-dsh-custom-v0.1.0-rc.8-fullfix.2}
+RELEASE_TAG=${DSH_RELEASE_TAG:-dsh-custom-v0.1.0-rc.8-fullfix.3}
 PREFIX=${DSH_PREFIX:-${HOME}/.local}
 
 usage() { printf '%s\n' 'Usage: install.sh [--prefix DIR] [--release-tag dsh-custom-vTAG]'; }

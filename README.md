@@ -39,7 +39,7 @@ sh install/install.sh
 Windows users can run `install/install.cmd` or `install/install.ps1`. The
 installer selects a native x64 or arm64 asset, verifies its SHA-256 checksum,
 and installs the bundled Node runtime and dependencies without running npm. The
-current preinstalled release is `dsh-custom-v0.1.0-rc.8-fullfix.2`; choose
+current preinstalled release is `dsh-custom-v0.1.0-rc.8-fullfix.3`; choose
 another patched tag with `DSH_RELEASE_TAG`.
 
 ### Run from source

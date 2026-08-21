@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
   [string]$Prefix = $(if ($env:DSH_PREFIX) { $env:DSH_PREFIX } else { Join-Path $env:LOCALAPPDATA 'dsh' }),
-  [string]$ReleaseTag = $(if ($env:DSH_RELEASE_TAG) { $env:DSH_RELEASE_TAG } else { 'dsh-custom-v0.1.0-rc.8-fullfix.2' })
+  [string]$ReleaseTag = $(if ($env:DSH_RELEASE_TAG) { $env:DSH_RELEASE_TAG } else { 'dsh-custom-v0.1.0-rc.8-fullfix.3' })
 )
 
 $ErrorActionPreference = 'Stop'

@@ -4,7 +4,7 @@ These installers install the repaired runtime published by
 `eiheil2/deepseek-harness`. They never fall back to the official
 `@deepseek-ai/dsh` npm package.
 
-The default release is `dsh-custom-v0.1.0-rc.8-fullfix.2`. Its assets are built
+The default release is `dsh-custom-v0.1.0-rc.8-fullfix.3`. Its assets are built
 by `.github/workflows/custom-runtime-release.yml` on their native GitHub-hosted
 runners:
 
