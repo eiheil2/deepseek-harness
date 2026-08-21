@@ -8,6 +8,13 @@ on:
 permissions:
   contents: write
 
+# A newer release tag supersedes an older packaging attempt. Keep the old run
+# record for diagnosis, but stop its hosted runners before starting another
+# full platform matrix.
+concurrency:
+  group: axl-preinstalled-runtime-release
+  cancel-in-progress: true
+
 env:
   NODE_VERSION: '24.19.0'
   DSH_TELEMETRY_DISABLED: '1'
