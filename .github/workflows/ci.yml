@@ -80,6 +80,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Test preinstalled runtime installer
+        run: sh install/test-install.sh
+
       - uses: pnpm/action-setup@v4
         with:
           dest: ${{ runner.temp }}/setup-pnpm
@@ -433,6 +436,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Test preinstalled runtime installer
+        run: sh install/test-install.sh
+
       - name: Compose Wine apt cache key
         id: wine-cache-key
         run: echo "key=wine-debs-${ImageOS:-linux}-${ImageVersion:-v0}" >> "$GITHUB_OUTPUT"

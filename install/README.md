@@ -29,8 +29,21 @@ auto-detecting installer. The script needs `tar`, a downloader (`curl` or
 `wget`), and a SHA-256 implementation normally supplied by the operating
 system. It does not need Node.js, npm, pnpm, or a compiler.
 
+The Linux assets require glibc. Native Android/Termux uses Bionic and is not a
+supported target for these preinstalled archives. The installer checks the C
+library before downloading a release asset and reports this incompatibility
+directly instead of installing an unusable `linux-arm64` runtime. A glibc Linux
+distribution running under a compatibility environment is accepted by the same
+check, but only the listed native GitHub runner platforms are release-tested.
+
 The default prefix is `$HOME/.local`. Set `DSH_PREFIX` or pass `--prefix` to
 change it. The `dsh` and `dsh-web` launchers are written to `$PREFIX/bin`.
+
+Verified archives are retained under `${XDG_CACHE_HOME:-$HOME/.cache}/dsh-axl`.
+Set `DSH_CACHE_DIR` to choose another cache. On a retry, the installer downloads
+the small checksum file, revalidates the cached archive, and avoids downloading
+the large archive again when its SHA-256 still matches. A new runtime must pass
+`dsh --version` in staging before it can replace an existing installation.
 
 ## Windows
 

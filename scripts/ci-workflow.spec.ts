@@ -7,6 +7,19 @@ const root = resolve(import.meta.dirname, '..')
 const runnerPrivatePnpmDestination = '${{ runner.temp }}/setup-pnpm'
 
 describe('CI workflow', () => {
+  it('runs the installer regression on pull requests and master pushes', () => {
+    const workflow = loadWorkflow('.github/workflows/ci.yml')
+    const pullRequestJob = workflowJob(workflow, 'node-24')
+    const masterPushJob = workflowJob(workflow, 'wine-apt-cache')
+    if (!Array.isArray(pullRequestJob.steps) || !Array.isArray(masterPushJob.steps)) {
+      throw new TypeError('installer CI jobs must define steps')
+    }
+
+    for (const steps of [pullRequestJob.steps, masterPushJob.steps]) {
+      expect(steps).toContainEqual(expect.objectContaining({ run: 'sh install/test-install.sh' }))
+    }
+  })
+
   it('isolates every pnpm action setup destination per runner', () => {
     const workflow: unknown = yaml.load(readFileSync(resolve(root, '.github/workflows/ci.yml'), 'utf8'))
     if (!isRecord(workflow) || !isRecord(workflow.jobs)) throw new TypeError('CI workflow must define jobs')

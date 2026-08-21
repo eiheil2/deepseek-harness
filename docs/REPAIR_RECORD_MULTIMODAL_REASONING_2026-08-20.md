@@ -90,3 +90,11 @@
 ## 6. 结论
 
 本轮已经把“模型是否支持图片”和“模型是否声明某个思考档位”从名称猜测改为精确路由能力，并在 UI、Host、LLM、ACP 之间传递；上下文、缓存和取消路径也获得了可测试的边界语义。证据足以支持“代码路径和模拟环境行为已修复”，不足以支持“所有第三方模型均真实兼容”或“缓存命中率在任何站点都可测”。后续验证优先级应是：用无敏感数据的真实图片请求逐路由测试、逐档测试已声明 effort、以及在长历史/取消/工作区并发下做黑盒回归。
+
+## 7. 预安装器平台识别与失败恢复（2026-08-21）
+
+Linux 安装器原先只依据 `uname -s` 和 `uname -m` 选择资产，会把原生 Android/Termux 的 `Linux/aarch64` 错判为普通 `linux-arm64`。Release 内的 Node.js 来自 Ubuntu runner，依赖 glibc，而 Termux 使用 Android Bionic；动态加载器不兼容时，即使 `runtime/node` 文件存在，shell 也会报告误导性的 `not found`。原实现还把约 100 MB 的归档放在退出即删除的临时目录，并且在 CLI 烟雾测试之前替换现有安装，因此失败重试会重复下载，失败更新也可能破坏已安装版本。
+
+修复后的安装器在下载前验证 Linux C 库，原生 Android/Termux 或其他非 glibc Linux 会收到明确错误且不会调用归档下载器。通过 SHA-256 校验的归档保存在 `${XDG_CACHE_HOME:-$HOME/.cache}/dsh-axl`，再次执行时只获取小型 checksum 文件并重新校验缓存；可用缓存不会重复下载。新运行时先在 staging 中执行 `dsh --version`，成功后才切换安装目录，并在切换失败时恢复上一版本。
+
+离线 WSL 回归使用伪造的 Android/Bionic 命令环境验证了“拒绝发生在下载器调用前”；使用本地微型 Release 归档验证了首次安装、删除源归档后的缓存复用，以及坏运行时烟雾测试失败后旧安装保持可用。该结果不等于新增 Android 支持；当前 Release 仍只支持列出的 Windows、glibc Linux 与 macOS 平台。

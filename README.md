@@ -71,7 +71,7 @@ cd deepseek-harness
 .\install\install.cmd
 ```
 
-Linux, WSL2, or macOS:
+Linux with glibc, WSL2, or macOS:
 
 ```sh
 git clone --depth 1 https://github.com/eiheil2/deepseek-harness.git
@@ -83,6 +83,11 @@ The installer selects the appropriate platform asset, verifies its SHA-256
 checksum, and installs the bundled Node runtime and dependencies without
 running npm. The current release is `dsh-custom-v0.1.0-rc.8-fullfix.3`. See the
 [`install/` guide](install/README.md) for paths and overrides.
+
+Native Android/Termux uses Bionic rather than glibc and cannot run the bundled
+Linux Node.js binary. The installer detects this before downloading the runtime
+archive and leaves any existing installation unchanged. Verified archives are
+cached, so a later retry does not download the same large asset again.
 
 ### Official upstream package
 

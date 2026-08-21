@@ -62,7 +62,7 @@ cd deepseek-harness
 .\install\install.cmd
 ```
 
-Linux、WSL2 或 macOS：
+使用 glibc 的 Linux、WSL2 或 macOS：
 
 ```sh
 git clone --depth 1 https://github.com/eiheil2/deepseek-harness.git
@@ -74,6 +74,10 @@ sh install/install.sh
 运行时与依赖，全程不运行 npm。当前版本是
 `dsh-custom-v0.1.0-rc.8-fullfix.3`。安装路径和高级选项见
 [`install/` 说明](install/README.md)。
+
+原生 Android/Termux 使用 Bionic 而不是 glibc，无法运行包内的 Linux Node.js
+二进制文件。安装器会在下载运行时归档前识别这种环境，并保留现有安装。
+通过校验的归档会进入缓存，因此再次执行安装器不会重复下载同一个大文件。
 
 ### 官方上游版本
 

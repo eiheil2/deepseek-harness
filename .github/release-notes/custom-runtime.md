@@ -12,6 +12,7 @@ This is the `eiheil2/deepseek-harness` repaired runtime based on upstream rc8. I
 - Raises the configurable default timeout for `web_search` and `web_fetch` from 30 seconds to 120 seconds.
 - Adds plugin startup recovery: retry with suspected entries disabled for the process, then fall back to shipped bundles only, without uninstalling packages or rewriting the profile.
 - Publishes preinstalled runtimes for Windows x64, Linux x64/arm64, and macOS x64/arm64 with bundled Node.js and resolved runtime dependencies. Installation does not run npm or pnpm.
+- Detects native Android/Termux and other non-glibc Linux systems before downloading an incompatible runtime, reuses SHA-256-verified archives from a persistent cache, and tests a new runtime before replacing an existing installation.
 
 These statements cover implemented and tested paths, not universal certification of every third-party gateway. Full details and evidence are in [`docs/REPAIR_RECORD_MULTIMODAL_REASONING_2026-08-20.md`](https://github.com/eiheil2/deepseek-harness/blob/master/docs/REPAIR_RECORD_MULTIMODAL_REASONING_2026-08-20.md).
 
@@ -29,5 +30,6 @@ These statements cover implemented and tested paths, not universal certification
 - `web_search` 与 `web_fetch` 的可配置默认超时从 30 秒提高到 120 秒。
 - 增加插件启动恢复：先在当前进程禁用可疑条目重试，再退回只加载随附 bundle；不会自动卸载软件包或改写 profile。
 - 发布 Windows x64、Linux x64/arm64、macOS x64/arm64 预安装运行时，捆绑 Node.js 与运行依赖，安装时不运行 npm 或 pnpm。
+- 在下载不兼容运行时之前识别原生 Android/Termux 和其他非 glibc Linux；复用持久缓存中通过 SHA-256 校验的归档；新运行时通过测试后才替换现有安装。
 
 以上说明只覆盖已经实现并测试的代码路径，不代表所有第三方网关均已认证。完整证据见 [`docs/REPAIR_RECORD_MULTIMODAL_REASONING_2026-08-20.md`](https://github.com/eiheil2/deepseek-harness/blob/master/docs/REPAIR_RECORD_MULTIMODAL_REASONING_2026-08-20.md)。

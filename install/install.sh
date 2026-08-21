@@ -4,12 +4,13 @@ set -eu
 
 REPOSITORY=${DSH_REPOSITORY:-eiheil2/deepseek-harness}
 RELEASE_TAG=${DSH_RELEASE_TAG:-dsh-custom-v0.1.0-rc.8-fullfix.3}
-PREFIX=${DSH_PREFIX:-${HOME}/.local}
+INSTALL_PREFIX=${DSH_PREFIX:-${HOME}/.local}
+CACHE_DIR=${DSH_CACHE_DIR:-${XDG_CACHE_HOME:-${HOME}/.cache}/dsh-axl}
 
 usage() { printf '%s\n' 'Usage: install.sh [--prefix DIR] [--release-tag dsh-custom-vTAG]'; }
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --prefix) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; PREFIX=$2; shift 2 ;;
+    --prefix) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; INSTALL_PREFIX=$2; shift 2 ;;
     --release-tag) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; RELEASE_TAG=$2; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'Unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
@@ -27,9 +28,37 @@ VERSION=${RELEASE_TAG#dsh-custom-v}
 
 platform=$(uname -s)
 architecture=$(uname -m)
+
+require_glibc_linux() {
+  libc_description=
+  if command -v getconf >/dev/null 2>&1; then
+    libc_description=$(getconf GNU_LIBC_VERSION 2>/dev/null || :)
+  fi
+  case "$libc_description" in
+    glibc\ *) return ;;
+  esac
+
+  if command -v ldd >/dev/null 2>&1; then
+    libc_description=$(ldd --version 2>&1 | sed -n '1p' || :)
+  fi
+  case "$libc_description" in
+    *GLIBC*|*glibc*|*GNU\ libc*|*GNU\ C\ Library*) return ;;
+  esac
+
+  if [ -n "${TERMUX_VERSION:-}" ] || [ -n "${ANDROID_ROOT:-}" ]; then
+    printf '%s\n' 'dsh installer: native Android/Termux is not supported by the preinstalled Linux runtime.' >&2
+    printf '%s\n' 'The bundled Node.js and native dependencies require glibc, while native Termux uses Android Bionic.' >&2
+  else
+    printf 'dsh installer: unsupported Linux C library%s. The preinstalled runtime requires glibc.\n' \
+      "${libc_description:+ ($libc_description)}" >&2
+  fi
+  printf '%s\n' 'No release archive was downloaded and the existing installation was not changed.' >&2
+  exit 1
+}
+
 case "$platform:$architecture" in
-  Linux:x86_64|Linux:amd64) target=linux-x64 ;;
-  Linux:aarch64|Linux:arm64) target=linux-arm64 ;;
+  Linux:x86_64|Linux:amd64) require_glibc_linux; target=linux-x64 ;;
+  Linux:aarch64|Linux:arm64) require_glibc_linux; target=linux-arm64 ;;
   Darwin:arm64) target=macos-arm64 ;;
   Darwin:x86_64|Darwin:amd64) target=macos-x64 ;;
   *) printf 'dsh installer: unsupported platform %s/%s\n' "$platform" "$architecture" >&2; exit 1 ;;
@@ -67,23 +96,61 @@ download() {
   fi
 }
 
+sha256_file() {
+  file=$1
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$file" | awk '{ print tolower($1) }'
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$file" | awk '{ print tolower($1) }'
+  elif command -v openssl >/dev/null 2>&1; then openssl dgst -sha256 "$file" | awk '{ print tolower($NF) }'
+  else printf '%s\n' 'dsh installer: sha256sum, shasum, or openssl is required for verification.' >&2; exit 1
+  fi
+}
+
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/dsh-axl.XXXXXX")
-trap 'rm -rf "$tmp"' EXIT INT TERM
-archive="$tmp/$ASSET"
+partial=
+incoming=
+previous=
+restore_previous=0
+cleanup() {
+  if [ "$restore_previous" = 1 ] && [ -n "$previous" ] && [ -e "$previous" ]; then
+    [ -z "${install_root:-}" ] || rm -rf "$install_root"
+    mv "$previous" "$install_root" 2>/dev/null || :
+  fi
+  [ -z "$incoming" ] || rm -rf "$incoming"
+  [ -z "$partial" ] || rm -f "$partial"
+  rm -rf "$tmp"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 checksum="$tmp/$ASSET.sha256"
-download "$archive" "$URL"
 download "$checksum" "${URL}.sha256"
 
 expected=$(awk 'NR == 1 { print tolower($1) }' "$checksum")
-if command -v sha256sum >/dev/null 2>&1; then actual=$(sha256sum "$archive" | awk '{ print tolower($1) }')
-elif command -v shasum >/dev/null 2>&1; then actual=$(shasum -a 256 "$archive" | awk '{ print tolower($1) }')
-elif command -v openssl >/dev/null 2>&1; then actual=$(openssl dgst -sha256 "$archive" | awk '{ print tolower($NF) }')
-else printf '%s\n' 'dsh installer: sha256sum, shasum, or openssl is required for verification.' >&2; exit 1
+case "$expected" in
+  ''|*[!0-9a-f]*) printf 'dsh installer: invalid checksum file for %s\n' "$ASSET" >&2; exit 1 ;;
+esac
+[ "${#expected}" -eq 64 ] || { printf 'dsh installer: invalid checksum length for %s\n' "$ASSET" >&2; exit 1; }
+
+mkdir -p "$CACHE_DIR"
+archive="$CACHE_DIR/$ASSET"
+actual=
+if [ -f "$archive" ]; then actual=$(sha256_file "$archive")
 fi
-[ -n "$expected" ] && [ "$expected" = "$actual" ] || {
-  printf 'dsh installer: checksum mismatch for %s\n' "$ASSET" >&2
-  exit 1
-}
+if [ "$actual" = "$expected" ]; then
+  printf 'using verified cached archive %s\n' "$archive"
+else
+  [ -z "$actual" ] || printf 'discarding stale or incomplete cached archive %s\n' "$archive" >&2
+  partial="$archive.part.$$"
+  rm -f "$partial"
+  download "$partial" "$URL"
+  actual=$(sha256_file "$partial")
+  [ "$expected" = "$actual" ] || {
+    printf 'dsh installer: checksum mismatch for %s\n' "$ASSET" >&2
+    exit 1
+  }
+  mv "$partial" "$archive"
+  partial=
+fi
 
 staging="$tmp/runtime"
 mkdir -p "$staging"
@@ -95,20 +162,40 @@ for required in dsh runtime/node node_modules/@deepseek-ai/dsh/lib/bin.js settin
   }
 done
 
-install_root="$PREFIX/lib/dsh-axl/$VERSION"
-mkdir -p "$(dirname "$install_root")" "$PREFIX/bin"
-rm -rf "$install_root"
-mv "$staging" "$install_root"
+if ! "$staging/dsh" --version; then
+  printf '%s\n' 'dsh installer: downloaded runtime failed its CLI smoke test; the existing installation was not changed.' >&2
+  exit 1
+fi
 
-cat > "$PREFIX/bin/dsh" <<EOF
+install_root="$INSTALL_PREFIX/lib/dsh-axl/$VERSION"
+install_base=$(dirname "$install_root")
+mkdir -p "$install_base" "$INSTALL_PREFIX/bin"
+incoming="$install_root.incoming.$$"
+previous="$install_root.previous.$$"
+rm -rf "$incoming" "$previous"
+mv "$staging" "$incoming"
+if [ -e "$install_root" ]; then
+  mv "$install_root" "$previous"
+  restore_previous=1
+fi
+if ! mv "$incoming" "$install_root"; then
+  printf '%s\n' 'dsh installer: could not activate the verified runtime; restoring the previous installation.' >&2
+  exit 1
+fi
+incoming=
+restore_previous=0
+rm -rf "$previous"
+previous=
+
+cat > "$INSTALL_PREFIX/bin/dsh" <<EOF
 #!/usr/bin/env sh
 exec "$install_root/dsh" "\$@"
 EOF
-cat > "$PREFIX/bin/dsh-web" <<EOF
+cat > "$INSTALL_PREFIX/bin/dsh-web" <<EOF
 #!/usr/bin/env sh
 exec "$install_root/start-web" "\$@"
 EOF
-chmod +x "$PREFIX/bin/dsh" "$PREFIX/bin/dsh-web"
+chmod +x "$INSTALL_PREFIX/bin/dsh" "$INSTALL_PREFIX/bin/dsh-web"
 
 dsh_home=${DSH_HOME:-${HOME}/.dsh}
 if [ ! -e "$dsh_home/settings.yaml" ]; then
@@ -119,6 +206,6 @@ else
   printf 'kept existing settings at %s\n' "$dsh_home/settings.yaml"
 fi
 
-"$PREFIX/bin/dsh" --version
+"$INSTALL_PREFIX/bin/dsh" --version
 printf 'preinstalled patched dsh installed from %s\n' "$URL"
-printf "Add %s/bin to PATH if 'dsh' is not found.\n" "$PREFIX"
+printf "Add %s/bin to PATH if 'dsh' is not found.\n" "$INSTALL_PREFIX"
