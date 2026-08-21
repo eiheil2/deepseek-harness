@@ -239,6 +239,12 @@ describe('E2B e2e workflow', () => {
 })
 
 describe('DeepSeek e2e workflow', () => {
+  it('runs only by explicit dispatch in this fork', () => {
+    const workflow = loadWorkflow('.github/workflows/e2e.yml')
+
+    expect(workflow.on).toEqual({ workflow_dispatch: null })
+  })
+
   it('prepares bubblewrap from the pinned payload without a package transaction', () => {
     const workflow = loadWorkflow('.github/workflows/e2e.yml')
     const e2e = workflowJob(workflow, 'e2e')

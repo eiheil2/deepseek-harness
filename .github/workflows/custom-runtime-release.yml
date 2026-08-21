@@ -184,6 +184,10 @@ jobs:
     needs: assemble
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
       - uses: actions/download-artifact@v4
         with:
           pattern: runtime-*
@@ -195,11 +199,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          {
+            echo "# DSH repaired preinstalled runtimes ${GITHUB_REF_NAME}"
+            echo
+            echo "Built from commit \`${GITHUB_SHA}\`. Each asset includes a matching SHA-256 file."
+            echo
+            cat .github/release-notes/custom-runtime.md
+          } > "$RUNNER_TEMP/release-notes.md"
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" dist/release/* --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "DSH repaired preinstalled runtimes ${GITHUB_REF_NAME}" \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
           else
             gh release create "$GITHUB_REF_NAME" dist/release/* \
               --repo "$GITHUB_REPOSITORY" \
-              --title "DSH AXL preinstalled runtimes ${GITHUB_REF_NAME}" \
-              --notes "Platform-native preinstalled runtimes built from the AXL fork commit ${GITHUB_SHA}. Each archive bundles Node, resolved runtime dependencies, fork fixes, and a credential-free settings template. These are not the official npm rc8 package."
+              --title "DSH repaired preinstalled runtimes ${GITHUB_REF_NAME}" \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
           fi
