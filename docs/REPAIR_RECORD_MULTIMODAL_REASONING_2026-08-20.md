@@ -98,3 +98,5 @@ Linux 安装器原先只依据 `uname -s` 和 `uname -m` 选择资产，会把�
 修复后的安装器在下载前验证 Linux C 库，原生 Android/Termux 或其他非 glibc Linux 会收到明确错误且不会调用归档下载器。通过 SHA-256 校验的归档保存在 `${XDG_CACHE_HOME:-$HOME/.cache}/dsh-axl`，再次执行时只获取小型 checksum 文件并重新校验缓存；可用缓存不会重复下载。新运行时先在 staging 中执行 `dsh --version`，成功后才切换安装目录，并在切换失败时恢复上一版本。
 
 离线 WSL 回归使用伪造的 Android/Bionic 命令环境验证了“拒绝发生在下载器调用前”；使用本地微型 Release 归档验证了首次安装、删除源归档后的缓存复用，以及坏运行时烟雾测试失败后旧安装保持可用。该结果不等于新增 Android 支持；当前 Release 仍只支持列出的 Windows、glibc Linux 与 macOS 平台。
+
+首次安装到默认 `$HOME/.local` 时，安装前已经运行的 shell 不会自动获得新创建的 `$HOME/.local/bin`，原安装器只打印模糊的 PATH 提示，因此紧接着执行 `dsh web` 会得到 `Command 'dsh' not found`。修复后，安装器会根据 `SHELL` 幂等更新 Bash、Zsh、Fish 或 POSIX profile，并打印当前终端可直接执行的精确 `export PATH=...` 命令；`DSH_NO_PATH_UPDATE=1` 可以禁止 profile 修改。离线回归验证了 profile 首次写入、重复安装不产生重复记录，以及即时激活提示存在。

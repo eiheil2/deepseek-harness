@@ -39,6 +39,13 @@ check, but only the listed native GitHub runner platforms are release-tested.
 The default prefix is `$HOME/.local`. Set `DSH_PREFIX` or pass `--prefix` to
 change it. The `dsh` and `dsh-web` launchers are written to `$PREFIX/bin`.
 
+When that directory is not already on `PATH`, the installer adds one idempotent
+entry to `.bashrc`, `.zshrc`, Fish's `config.fish`, or `.profile` according to
+`SHELL`. Set `DSH_NO_PATH_UPDATE=1` to leave shell profiles untouched. A child
+installer process cannot change the environment of the terminal that launched
+it, so run the exact `export PATH=...` command printed at the end once, or open
+a new terminal, before invoking `dsh` by name.
+
 Verified archives are retained under `${XDG_CACHE_HOME:-$HOME/.cache}/dsh-axl`.
 Set `DSH_CACHE_DIR` to choose another cache. On a retry, the installer downloads
 the small checksum file, revalidates the cached archive, and avoids downloading

@@ -68,6 +68,8 @@ cd deepseek-harness
 git clone --depth 1 https://github.com/eiheil2/deepseek-harness.git
 cd deepseek-harness
 sh install/install.sh
+export PATH="$HOME/.local/bin:$PATH"
+dsh web
 ```
 
 安装器会自动选择对应平台的资产，校验 SHA-256，并安装已捆绑的 Node
@@ -78,6 +80,8 @@ sh install/install.sh
 原生 Android/Termux 使用 Bionic 而不是 glibc，无法运行包内的 Linux Node.js
 二进制文件。安装器会在下载运行时归档前识别这种环境，并保留现有安装。
 通过校验的归档会进入缓存，因此再次执行安装器不会重复下载同一个大文件。
+安装器还会为之后打开的终端配置对应 shell 的 profile。命令块中的显式
+`export` 用于让安装前已经打开的当前终端立即识别 `dsh`。
 
 ### 官方上游版本
 

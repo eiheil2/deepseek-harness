@@ -77,6 +77,8 @@ Linux with glibc, WSL2, or macOS:
 git clone --depth 1 https://github.com/eiheil2/deepseek-harness.git
 cd deepseek-harness
 sh install/install.sh
+export PATH="$HOME/.local/bin:$PATH"
+dsh web
 ```
 
 The installer selects the appropriate platform asset, verifies its SHA-256
@@ -88,6 +90,9 @@ Native Android/Termux uses Bionic rather than glibc and cannot run the bundled
 Linux Node.js binary. The installer detects this before downloading the runtime
 archive and leaves any existing installation unchanged. Verified archives are
 cached, so a later retry does not download the same large asset again.
+The installer also configures the selected shell profile for future terminals.
+The explicit `export` in the command block activates `dsh` in the terminal that
+was already running before installation.
 
 ### Official upstream package
 

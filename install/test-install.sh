@@ -75,15 +75,20 @@ cache="$TEST_ROOT/cache"
 home="$TEST_ROOT/home"
 good_url="file://$good_archive"
 DSH_PREFIX="$prefix" DSH_CACHE_DIR="$cache" HOME="$home" DSH_RELEASE_URL="$good_url" \
+  SHELL=/bin/bash \
   sh "$INSTALLER" > "$TEST_ROOT/first-install.log"
 grep -q 'test-version-good' "$TEST_ROOT/first-install.log" || fail 'first install did not run the staged runtime'
+grep -Fqx "export PATH='$prefix/bin':\"\$PATH\"" "$home/.bashrc" || fail 'installer did not configure Bash PATH'
+grep -q 'To use dsh in this already-running shell' "$TEST_ROOT/first-install.log" || fail 'current-shell activation instruction is missing'
 
 asset=$(find "$cache" -type f -name '*.tar.gz' -print | sed -n '1p')
 [ -n "$asset" ] || fail 'verified archive was not cached'
 rm "$good_archive"
 DSH_PREFIX="$prefix" DSH_CACHE_DIR="$cache" HOME="$home" DSH_RELEASE_URL="$good_url" \
+  SHELL=/bin/bash \
   sh "$INSTALLER" > "$TEST_ROOT/cached-install.log"
 grep -q 'using verified cached archive' "$TEST_ROOT/cached-install.log" || fail 'second install did not reuse the cache'
+[ "$(grep -Fxc "export PATH='$prefix/bin':\"\$PATH\"" "$home/.bashrc")" -eq 1 ] || fail 'installer duplicated the Bash PATH entry'
 
 bad_source="$TEST_ROOT/bad-source"
 make_runtime "$bad_source" 'test-version-bad' 17
@@ -91,6 +96,7 @@ bad_archive="$TEST_ROOT/bad.tar.gz"
 tar -czf "$bad_archive" -C "$bad_source" .
 sha256sum "$bad_archive" > "$bad_archive.sha256"
 if DSH_PREFIX="$prefix" DSH_CACHE_DIR="$TEST_ROOT/bad-cache" HOME="$home" DSH_RELEASE_URL="file://$bad_archive" \
+  SHELL=/bin/bash \
   sh "$INSTALLER" > "$TEST_ROOT/bad-install.log" 2>&1; then
   fail 'runtime with a failing CLI smoke test was installed'
 fi

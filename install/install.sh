@@ -105,6 +105,45 @@ sha256_file() {
   fi
 }
 
+shell_single_quote() {
+  printf '%s' "$1" | sed "s/'/'\\\\''/g"
+}
+
+configure_user_path() {
+  bin_dir=$INSTALL_PREFIX/bin
+  case ":${PATH:-}:" in
+    *:"$bin_dir":*) return ;;
+  esac
+
+  quoted_bin=$(shell_single_quote "$bin_dir")
+  activation="export PATH='$quoted_bin':\"\$PATH\""
+  if [ "${DSH_NO_PATH_UPDATE:-}" = 1 ]; then
+    printf '%s\n' 'dsh installer: skipped shell profile update because DSH_NO_PATH_UPDATE=1.'
+  else
+    shell_name=${SHELL##*/}
+    case "$shell_name" in
+      bash) profile=$HOME/.bashrc; profile_line=$activation ;;
+      zsh) profile=$HOME/.zshrc; profile_line=$activation ;;
+      fish)
+        profile=$HOME/.config/fish/config.fish
+        profile_line="fish_add_path --path '$quoted_bin'"
+        ;;
+      *) profile=$HOME/.profile; profile_line=$activation ;;
+    esac
+    mkdir -p "$(dirname "$profile")"
+    if [ ! -f "$profile" ] || ! grep -Fqx "$profile_line" "$profile"; then
+      {
+        printf '\n%s\n' '# Added by the DSH repaired runtime installer.'
+        printf '%s\n' "$profile_line"
+      } >> "$profile"
+      printf 'configured %s in %s for future shells\n' "$bin_dir" "$profile"
+    fi
+  fi
+
+  printf '%s\n' 'To use dsh in this already-running shell, run:'
+  printf '  %s\n' "$activation"
+}
+
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/dsh-axl.XXXXXX")
 partial=
 incoming=
@@ -208,4 +247,4 @@ fi
 
 "$INSTALL_PREFIX/bin/dsh" --version
 printf 'preinstalled patched dsh installed from %s\n' "$URL"
-printf "Add %s/bin to PATH if 'dsh' is not found.\n" "$INSTALL_PREFIX"
+configure_user_path
