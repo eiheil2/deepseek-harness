@@ -39,7 +39,7 @@ sh install/install.sh
 Windows 用户可以运行 `install/install.cmd` 或 `install/install.ps1`。安装器
 会自动选择原生 x64 或 arm64 资产，校验 SHA-256，并安装已捆绑的 Node
 运行时与依赖，全程不运行 npm。当前预安装版本的 tag 是
-`dsh-custom-v0.1.0-rc.8-fullfix.1`，可通过 `DSH_RELEASE_TAG` 选择其他修复版。
+`dsh-custom-v0.1.0-rc.8-fullfix.2`，可通过 `DSH_RELEASE_TAG` 选择其他修复版。
 
 ### 从源码运行
 

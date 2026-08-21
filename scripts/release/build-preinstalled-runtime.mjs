@@ -71,7 +71,15 @@ function runNpm(cwd) {
   ]
   const command = process.platform === 'win32' ? (process.env.ComSpec ?? 'cmd.exe') : 'npm'
   const commandArgs = process.platform === 'win32' ? ['/d', '/s', '/c', 'npm.cmd', ...args] : args
-  const result = spawnSync(command, commandArgs, { cwd, stdio: 'inherit' })
+  const result = spawnSync(command, commandArgs, {
+    cwd,
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      npm_config_progress: 'false',
+      npm_config_update_notifier: 'false',
+    },
+  })
   if (result.error !== undefined) throw result.error
   if (result.status !== 0) fail(`npm install exited with ${String(result.status)}`)
 }

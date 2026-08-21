@@ -77,7 +77,10 @@ jobs:
             arch: x64
             asset: macos-x64
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    # Native optional dependencies on hosted macOS/arm64 runners can take
+    # substantially longer than Windows extraction. The end-user archive is
+    # still preinstalled; this timeout only bounds the release builder.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v6
         with:
