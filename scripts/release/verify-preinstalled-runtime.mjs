@@ -22,6 +22,27 @@ function waitForExit(child, timeoutMs) {
   })
 }
 
+async function stopChildTree(child) {
+  if (child.exitCode !== null) return
+  if (process.platform !== 'win32' && child.pid !== undefined) {
+    // Unix verification commands can start Web/PTY descendants. Kill the
+    // detached process group so inherited stdout/stderr pipes are released.
+    try { process.kill(-child.pid, 'SIGTERM') } catch {}
+  } else {
+    child.kill()
+  }
+  try {
+    await waitForExit(child, 10_000)
+    return
+  } catch {}
+  if (process.platform !== 'win32' && child.pid !== undefined) {
+    try { process.kill(-child.pid, 'SIGKILL') } catch {}
+  } else {
+    child.kill('SIGKILL')
+  }
+  await waitForExit(child, 2_000).catch(() => undefined)
+}
+
 async function waitForFile(filename, child, timeoutMs) {
   const deadline = Date.now() + timeoutMs
   while (!existsSync(filename)) {
@@ -119,6 +140,7 @@ async function verifySafeMode(runtime, home) {
     cwd: home,
     env: { ...process.env, DSH_HOME: home, RAW_READY_FILE: ready },
     stdio: ['ignore', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32',
   })
   let output = ''
   child.stdout.setEncoding('utf8').on('data', chunk => { output += chunk })
@@ -127,8 +149,7 @@ async function verifySafeMode(runtime, home) {
     await waitForFile(ready, child, 30_000)
     await waitForText(() => output, 'startup recovery succeeded', child, 10_000)
   } finally {
-    child.kill()
-    await waitForExit(child, 10_000).catch(() => undefined)
+    await stopChildTree(child)
   }
   for (const expected of [
     'safe-mode-failing',
@@ -160,6 +181,7 @@ async function verifyWeb(runtime, home) {
     cwd: runtime,
     env: { ...process.env, DSH_HOME: home },
     stdio: ['ignore', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32',
   })
   let output = ''
   child.stdout.setEncoding('utf8').on('data', chunk => { output += chunk })
@@ -175,8 +197,7 @@ async function verifyWeb(runtime, home) {
     }
     await requestOk(match)
   } finally {
-    child.kill()
-    await waitForExit(child, 10_000).catch(() => undefined)
+    await stopChildTree(child)
   }
 }
 
