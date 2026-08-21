@@ -1,4 +1,4 @@
-name: Release custom patched runtime
+name: Release AXL preinstalled runtimes
 
 on:
   push:
@@ -9,11 +9,12 @@ permissions:
   contents: write
 
 env:
-  NODE_VERSION: '24'
+  NODE_VERSION: '24.19.0'
   DSH_TELEMETRY_DISABLED: '1'
 
 jobs:
-  package:
+  pack:
+    name: Pack patched workspace packages
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -34,43 +35,161 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm run build:official
 
-      - name: Pack patched runtime packages
+      - name: Pack release families
         run: |
           pnpm run release:pack --family dsh --out dist/npm
           pnpm run release:pack --family vendor --out dist/npm-vendor
-          pnpm --dir native/landlock-run run build:ts
-          mkdir -p dist/npm-landlock
-          pnpm --dir native/landlock-run/packages/entry pack --pack-destination "$PWD/dist/npm-landlock"
 
-      - name: Assemble minimal runtime archive
-        id: runtime
+      - uses: actions/upload-artifact@v4
+        with:
+          name: patched-package-tarballs
+          path: |
+            dist/npm/*.tgz
+            dist/npm-vendor/*.tgz
+          if-no-files-found: error
+          retention-days: 3
+
+  assemble:
+    name: Assemble ${{ matrix.asset }}
+    needs: pack
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            platform: windows
+            arch: x64
+            asset: windows-x64
+          - os: ubuntu-24.04
+            platform: linux
+            arch: x64
+            asset: linux-x64
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+            asset: linux-arm64
+          - os: macos-latest
+            platform: macos
+            arch: arm64
+            asset: macos-arm64
+          - os: macos-15-intel
+            platform: macos
+            arch: x64
+            asset: macos-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: patched-package-tarballs
+          path: dist/packs
+
+      - name: Assemble preinstalled runtime (Unix)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
-          tag="${GITHUB_REF_NAME#dsh-custom-v}"
-          [[ -n "$tag" ]] || { echo 'missing dsh-custom-v* tag' >&2; exit 1; }
-          mkdir -p "dist/custom-runtime"/{npm,vendor,landlock}
-          cp dist/npm/*.tgz dist/custom-runtime/npm/
-          cp dist/npm-vendor/*.tgz dist/custom-runtime/vendor/
-          cp dist/npm-landlock/*.tgz dist/custom-runtime/landlock/
-          node scripts/release/make-custom-runtime-manifest.mjs \
-            dist/custom-runtime/runtime-manifest.json \
-            dist/custom-runtime/npm dist/custom-runtime/vendor dist/custom-runtime/landlock
-          if [[ "$tag" == *-linux.* ]]; then
-            archive="dsh-custom-runtime-linux-x64-${tag}.tar.gz"
-          else
-            archive="dsh-custom-runtime-${tag}.tar.gz"
-          fi
-          tar -czf "dist/${archive}" -C dist/custom-runtime .
-          sha256sum "dist/${archive}" > "dist/${archive}.sha256"
-          echo "tag=dsh-custom-v${tag}" >> "$GITHUB_OUTPUT"
-          echo "archive=${archive}" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#dsh-custom-v}"
+          runtime="$RUNNER_TEMP/dsh-axl-${{ matrix.asset }}-$version"
+          node scripts/release/build-preinstalled-runtime.mjs \
+            --dsh-pack dist/packs/npm \
+            --vendor-pack dist/packs/npm-vendor \
+            --out "$runtime" \
+            --node-bin "$(command -v node)" \
+            --settings-template install/settings.official.yaml \
+            --repository "$GITHUB_REPOSITORY" \
+            --commit "$GITHUB_SHA" \
+            --platform '${{ matrix.platform }}' \
+            --arch '${{ matrix.arch }}' \
+            --include-package '@deepseek-ai/dsh-acp'
+          node scripts/release/verify-preinstalled-runtime.mjs \
+            "$runtime" "$RUNNER_TEMP/dsh-runtime-verification"
+          echo "RUNTIME=$runtime" >> "$GITHUB_ENV"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
 
-      - name: Publish GitHub release asset
+      - name: Assemble preinstalled runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME -replace '^dsh-custom-v', ''
+          if (-not $version) { throw 'missing dsh-custom-v* tag' }
+          $runtime = Join-Path $env:RUNNER_TEMP "dsh-axl-${{ matrix.asset }}-$version"
+          node scripts/release/build-preinstalled-runtime.mjs `
+            --dsh-pack dist/packs/npm `
+            --vendor-pack dist/packs/npm-vendor `
+            --out $runtime `
+            --node-bin (Get-Command node).Source `
+            --settings-template install/settings.official.yaml `
+            --repository $env:GITHUB_REPOSITORY `
+            --commit $env:GITHUB_SHA `
+            --platform '${{ matrix.platform }}' `
+            --arch '${{ matrix.arch }}' `
+            --include-package '@deepseek-ai/dsh-acp'
+          node scripts/release/verify-preinstalled-runtime.mjs `
+            $runtime (Join-Path $env:RUNNER_TEMP 'dsh-runtime-verification')
+          "RUNTIME=$runtime" >> $env:GITHUB_ENV
+          "VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: Archive Unix runtime
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/release
+          archive="dsh-axl-${{ matrix.asset }}-${VERSION}.tar.gz"
+          tar -czf "dist/release/$archive" -C "$RUNTIME" .
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "dist/release/$archive" > "dist/release/$archive.sha256"
+          else
+            shasum -a 256 "dist/release/$archive" > "dist/release/$archive.sha256"
+          fi
+
+      - name: Archive Windows runtime
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/release | Out-Null
+          $archive = "dsh-axl-${{ matrix.asset }}-$env:VERSION.zip"
+          Compress-Archive -Path "$env:RUNTIME/*" -DestinationPath "dist/release/$archive" -CompressionLevel Optimal
+          $hash = (Get-FileHash "dist/release/$archive" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $archive" | Set-Content -Encoding ASCII "dist/release/$archive.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-${{ matrix.asset }}
+          path: dist/release/*
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    name: Publish release assets
+    needs: assemble
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: runtime-*
+          path: dist/release
+          merge-multiple: true
+
+      - name: Publish checksummed platform assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ steps.runtime.outputs.tag }}" \
-            "dist/${{ steps.runtime.outputs.archive }}" \
-            "dist/${{ steps.runtime.outputs.archive }}.sha256" \
-            --title "DSH patched runtime ${{ steps.runtime.outputs.tag }}" \
-            --notes "Patched DeepSeek Harness runtime built from this commit on Ubuntu 24.04. This is not the official npm rc8 package."
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/release/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$GITHUB_REF_NAME" dist/release/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "DSH AXL preinstalled runtimes ${GITHUB_REF_NAME}" \
+              --notes "Platform-native preinstalled runtimes built from the AXL fork commit ${GITHUB_SHA}. Each archive bundles Node, resolved runtime dependencies, fork fixes, and a credential-free settings template. These are not the official npm rc8 package."
+          fi

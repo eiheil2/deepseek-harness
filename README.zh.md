@@ -29,16 +29,17 @@ npx @deepseek-ai/dsh web
 包。具体说明见 [`install/README.md`](install/README.md)。
 
 ```sh
-# Linux 或 WSL2 x64（由 Ubuntu 构建）
+# Linux 或 WSL2
 sh install/install-linux.sh
 
-# macOS 或其他 Unix-like 系统
+# macOS
 sh install/install.sh
 ```
 
 Windows 用户可以运行 `install/install.cmd` 或 `install/install.ps1`。安装器
-需要 Node.js `22.19+` 或 `24+`。当前修复版 tag 是
-`dsh-custom-v0.1.0-rc.8-patched.1`，可通过 `DSH_RELEASE_TAG` 选择其他修复版。
+会自动选择原生 x64 或 arm64 资产，校验 SHA-256，并安装已捆绑的 Node
+运行时与依赖，全程不运行 npm。当前预安装版本的 tag 是
+`dsh-custom-v0.1.0-rc.8-fullfix.1`，可通过 `DSH_RELEASE_TAG` 选择其他修复版。
 
 ### 从源码运行
 

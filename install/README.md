@@ -1,41 +1,60 @@
-# Patched DSH Installers
+# AXL Fork Installers
 
-These installers install **our patched DeepSeek Harness runtime** from the
-`eiheil2/deepseek-harness` GitHub fork. They do not install the official npm
-`@deepseek-ai/dsh` package and do not copy the source repository, tests, docs,
-debug records, or development dependencies.
+These installers install the repaired runtime published by
+`eiheil2/deepseek-harness`. They never fall back to the official
+`@deepseek-ai/dsh` npm package.
 
-The default release is `dsh-custom-v0.1.0-rc.8-patched.1`. That tag is built by
-`.github/workflows/custom-runtime-release.yml`; the release asset contains only
-the packed runtime tarballs and a generated dependency manifest.
+The default release is `dsh-custom-v0.1.0-rc.8-fullfix.1`. Its assets are built
+by `.github/workflows/custom-runtime-release.yml` on their native GitHub-hosted
+runners:
 
-## Linux and macOS
+- Windows x64
+- Linux x64 and arm64
+- macOS x64 and arm64
+
+Each archive contains the fork's packed runtime closure, platform-resolved
+optional dependencies, a bundled Node runtime, launchers, build provenance, and
+a credential-free settings template. It excludes the source tree, tests,
+research notes, debug records, package-manager cache, and development
+dependencies.
+
+## Linux, WSL, and macOS
 
 ```sh
-sh install.sh
+sh install/install.sh
 ```
 
-For Linux and WSL, use the Ubuntu-built Linux x64 asset:
+`install-linux.sh` is a compatibility entry point that invokes the same
+auto-detecting installer. The script needs `tar`, a downloader (`curl` or
+`wget`), and a SHA-256 implementation normally supplied by the operating
+system. It does not need Node.js, npm, pnpm, or a compiler.
 
-```sh
-sh install-linux.sh
-```
-
-That asset is built and verified on `ubuntu-24.04`. It is intended for normal
-x86_64 Linux and WSL2 x86_64 environments.
-
-Use `DSH_PREFIX=$HOME/.local` or `sh install.sh --prefix "$HOME/.local"` to
-choose the installation prefix. The script requires Node.js `22.19+` or `24+`,
-`npm`, `tar`, and `curl` or `wget`.
+The default prefix is `$HOME/.local`. Set `DSH_PREFIX` or pass `--prefix` to
+change it. The `dsh` and `dsh-web` launchers are written to `$PREFIX/bin`.
 
 ## Windows
 
-Double-click `install.cmd`, or run `install.ps1` in PowerShell. The default
-prefix is `%LOCALAPPDATA%\dsh`; add that directory to `PATH` after installation.
+Double-click `install.cmd`, or run:
 
-## Selecting another patched build
+```powershell
+powershell -ExecutionPolicy Bypass -File install\install.ps1
+```
 
-Set `DSH_RELEASE_TAG` or pass `--release-tag dsh-custom-v<version>`. The source
-repository and release URL can also be overridden with `DSH_REPOSITORY` and
-`DSH_RELEASE_URL`. There is deliberately no fallback to the official package:
-if the patched release asset is unavailable, installation fails loudly.
+The PowerShell installer uses built-in download, SHA-256, and ZIP extraction
+support. It does not invoke npm. The default prefix is `%LOCALAPPDATA%\dsh`;
+add that directory to `PATH` after installation.
+
+## Configuration Safety
+
+On a clean DSH home, the installer copies `settings.official.yaml` to
+`settings.yaml`. The template contains no credential. An existing settings file
+is never replaced.
+
+## Selecting Another Build
+
+Set `DSH_RELEASE_TAG` or pass `--release-tag dsh-custom-v<version>`. Advanced
+testing can override `DSH_REPOSITORY`, `DSH_RELEASE_ASSET`, or
+`DSH_RELEASE_URL`. Set `DSH_RELEASE_PROXY` to force a download proxy, or set
+`DSH_RELEASE_NO_PROXY=1` for a direct local/private-network test. A missing or
+invalid fork asset is a hard failure; there is no fallback to an official
+distribution.

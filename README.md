@@ -29,17 +29,18 @@ distributions. The scripts in [`install/`](install/README.md) download only our
 GitHub Release asset and never fall back to the official package.
 
 ```sh
-# Linux or WSL2 x64 (Ubuntu-built runtime)
+# Linux or WSL2
 sh install/install-linux.sh
 
-# macOS or another Unix-like system
+# macOS
 sh install/install.sh
 ```
 
 Windows users can run `install/install.cmd` or `install/install.ps1`. The
-installer requires Node.js `22.19+` or `24+`. The current patched release is
-`dsh-custom-v0.1.0-rc.8-patched.1`; choose another patched tag with
-`DSH_RELEASE_TAG`.
+installer selects a native x64 or arm64 asset, verifies its SHA-256 checksum,
+and installs the bundled Node runtime and dependencies without running npm. The
+current preinstalled release is `dsh-custom-v0.1.0-rc.8-fullfix.1`; choose
+another patched tag with `DSH_RELEASE_TAG`.
 
 ### Run from source
 
