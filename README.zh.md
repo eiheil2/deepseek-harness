@@ -6,47 +6,58 @@ DeepSeek Harness（`dsh`）是由 [DeepSeek AI](https://deepseek.com) 开发的�
 
 它采用**一切皆插件**的架构，并由 [Cordis](https://github.com/cordiverse/cordis) 驱动，其设计参见论文 [_A Programming Paradigm for Spatiotemporal Composability_](https://github.com/cordiverse/paper)。
 
+本仓库是 `eiheil2/deepseek-harness` 修复分支。这里发布的预安装运行时
+包含尚未进入官方 `@deepseek-ai/dsh` npm 发行版的修复。
+
 ## 开发者预览
 
 DeepSeek Harness 目前处于 _开发者预览_ 阶段，正在快速迭代。**未来将出现破坏兼容性的变更。**
 
-## 运行
+## 安装
 
-### 通过 `npm` 运行
+### 我们的修复版
 
-安装 `Node.js`，然后运行：
+下面的命令安装的是**本仓库的修复版**，不会安装或回退到官方 npm 包。
+
+Windows PowerShell 或命令提示符：
+
+```powershell
+git clone --depth 1 https://github.com/eiheil2/deepseek-harness.git
+cd deepseek-harness
+.\install\install.cmd
+```
+
+Linux、WSL2 或 macOS：
+
+```sh
+git clone --depth 1 https://github.com/eiheil2/deepseek-harness.git
+cd deepseek-harness
+sh install/install.sh
+```
+
+安装器会自动选择对应平台的资产，校验 SHA-256，并安装已捆绑的 Node
+运行时与依赖，全程不运行 npm。当前版本是
+`dsh-custom-v0.1.0-rc.8-fullfix.3`。安装路径和高级选项见
+[`install/` 说明](install/README.md)。
+
+### 官方上游版本
+
+下面的命令运行 DeepSeek AI 的**官方 npm 发行版**，不是本仓库，也不包含
+上面的修复。请先安装 Node.js：
 
 ```sh
 npx @deepseek-ai/dsh web
 ```
 
-该命令默认会在 `http://127.0.0.1:3080` 启动 Web UI，本机启动时还会用默认浏览器打开页面。通过 SSH 启动时只打印宿主机 URL，因为本地转发地址由 SSH 客户端或编辑器持有。传入 `--no-open` 可仅运行服务器而不打开浏览器。详见 [Web UI 指南](docs/user/guide/index.md)。
-
-### 安装我们的修复版运行时
-
-官方 npm 包和这个 fork 中的修复版是两个不同的发行版本。`install/`
-目录中的脚本只从我们的 GitHub Release 下载运行包，不会回退到官方 npm
-包。具体说明见 [`install/README.md`](install/README.md)。
-
-```sh
-# Linux 或 WSL2
-sh install/install-linux.sh
-
-# macOS
-sh install/install.sh
-```
-
-Windows 用户可以运行 `install/install.cmd` 或 `install/install.ps1`。安装器
-会自动选择原生 x64 或 arm64 资产，校验 SHA-256，并安装已捆绑的 Node
-运行时与依赖，全程不运行 npm。当前预安装版本的 tag 是
-`dsh-custom-v0.1.0-rc.8-fullfix.3`，可通过 `DSH_RELEASE_TAG` 选择其他修复版。
+该命令默认在 `http://127.0.0.1:3080` 启动 Web UI。详见
+[Web UI 指南](docs/user/guide/index.md)。
 
 ### 从源码运行
 
 如需从仓库源码运行：
 
 ```sh
-git clone https://github.com/deepseek-ai/deepseek-harness.git
+git clone https://github.com/eiheil2/deepseek-harness.git
 cd deepseek-harness
 pnpm install
 pnpm run build
