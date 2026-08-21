@@ -1,17 +1,10 @@
 name: Deploy documentation
 
+# This fork does not have GitHub Pages enabled. Automatic push runs would fail
+# in actions/configure-pages before documentation validation starts and send a
+# misleading failure notification. Documentation remains covered by the main CI;
+# enable Pages in repository settings before dispatching this deployment.
 on:
-  push:
-    branches: [master]
-    paths:
-      - '.github/workflows/docs-pages.yml'
-      - 'docs/**'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'pnpm-workspace.yaml'
-      - 'scripts/project-doc-site.ts'
-      - 'scripts/project-doc-site.spec.ts'
-      - 'website/**'
   workflow_dispatch:
 
 concurrency:

@@ -271,6 +271,14 @@ describe('DeepSeek e2e workflow', () => {
   })
 })
 
+describe('documentation deployment workflow', () => {
+  it('runs only by explicit dispatch while Pages is disabled in this fork', () => {
+    const workflow = loadWorkflow('.github/workflows/docs-pages.yml')
+
+    expect(workflow.on).toEqual({ workflow_dispatch: null })
+  })
+})
+
 describe('Python release workflows', () => {
   it('keeps complete wheel validation separate from protected public publication', () => {
     const workflow = loadWorkflow('.github/workflows/python-release.yml')
