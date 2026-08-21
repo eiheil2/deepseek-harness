@@ -10,6 +10,48 @@ This repository is the `eiheil2/deepseek-harness` repair fork. Its preinstalled
 runtime contains fixes that are not part of the official
 `@deepseek-ai/dsh` npm distribution.
 
+## What This Fork Repairs
+
+Compared with the upstream rc8 baseline used by this repository, the repaired
+runtime includes:
+
+- **Model capability controls:** per-model text/image input and reasoning-effort
+  declarations can be configured in the model editor and changed without a
+  restart. The model selector displays the declared capability, disables a
+  declared text-only model while an image is attached, and does not guess from
+  a model name when capability metadata is absent.
+- **Reasoning-effort routing:** the selected effort follows the exact model and
+  session across model changes, session creation, and forks. Unsupported
+  efforts fail before a network request instead of being silently rewritten.
+- **Context and cache accounting:** context pressure is scoped to the active
+  provider/model route, displayed token values cannot become negative, unknown
+  request overhead is shown separately, and cache hit information is displayed
+  only when the provider actually supplies cache telemetry.
+- **Multimodal and ACP cancellation:** exact image capability metadata reaches
+  the Web UI and Host API, runtime configuration changes are visible on the
+  next model resolution, and cancelling ACP image/output conversion no longer
+  waits indefinitely for the ordered output tail.
+- **Session and workspace recovery:** a session created before workspace
+  attachment fails remains visible and is recovered into the ungrouped view
+  instead of appearing lost or inviting a duplicate creation attempt.
+- **Bounded instruction loading:** aggregate Agent instruction sources have an
+  8 MiB default budget across both initial loading and reconciliation.
+- **Longer Web tool budget:** the default cooperative timeout for `web_search`
+  and `web_fetch` is 120 seconds instead of 30 seconds and remains configurable.
+- **Plugin startup recovery:** a plugin activation failure first retries with
+  the suspected entries disabled for that process, then falls back to a
+  shipped-bundle-only safe mode. It reports the suspected plugin without
+  uninstalling packages or rewriting the user's profile.
+- **Preinstalled platform runtimes:** release assets bundle Node.js and resolved
+  runtime dependencies for Windows x64, Linux x64/arm64, and macOS x64/arm64,
+  so installation does not run npm or install development files.
+
+These statements describe implemented and tested code paths, not universal
+third-party endpoint certification. A gateway that does not declare image,
+reasoning, cache, or capacity metadata remains explicitly unknown until it is
+configured or tested. The detailed engineering record is in
+[`docs/REPAIR_RECORD_MULTIMODAL_REASONING_2026-08-20.md`](docs/REPAIR_RECORD_MULTIMODAL_REASONING_2026-08-20.md).
+
 ## Developer preview
 
 DeepSeek Harness is currently in _developer preview_ and is iterating rapidly. **THERE WILL BE COMPATIBILITY-BREAKING CHANGES.**
