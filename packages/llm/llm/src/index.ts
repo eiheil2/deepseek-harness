@@ -6,12 +6,16 @@
  * @module @deepseek-ai/dsh-llm
  */
 
-import { Context, Service } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
+import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { deepFreeze } from '@deepseek-ai/dsh-util-values'
 import type {
   GenerateOptions,
+  RequestMessage,
   LlmConfigurableProvider,
   LlmDiscoveredModel,
   LlmFailure,
+  LlmImageRequestPricing,
   LlmModelContext,
   LlmModelDiscoveryRequest,
   LlmModelInfo,
@@ -19,29 +23,35 @@ import type {
   LlmProviderInfo,
   ModelModality,
   StreamChunk,
+  SystemPromptUpdate,
+  ToolSchema,
+  ToolUpdate,
 } from './types.ts'
-import { freezeMessage, type Message } from './message.ts'
+import { freezeMessage } from './message.ts'
 import { resolveRetryPolicy } from './retry-policy.ts'
 import type { ResolvedRetryPolicy } from './retry-policy.ts'
 import type { ProviderRequestId } from './brand.ts'
-import { callConfigEquals, deepFreeze } from './call-config.ts'
+import { callConfigEquals } from './call-config.ts'
 import type { LlmCallConfig, LlmCallConfigAdapterDefaults } from './call-config.ts'
 import { HarnessError, INVALID_CREDENTIAL_CODE } from './error.ts'
 import { normalizeLlmFailure } from './adapter-failure.ts'
 import { normalizeApiKey } from './api-key.ts'
-import { contentHasImage, projectImagesForTextModel } from './content.ts'
+import {
+  contentHasFile, contentHasImage, fileHandleText, projectFilesToText, projectImagesForTextModel, projectToolUpdates,
+} from './content.ts'
+import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
 
 export * from './attribution.ts'
 export * from './brand.ts'
-export * from './never.ts'
 export * from './error.ts'
 export * from './api-key.ts'
 export * from './types.ts'
 export * from './content.ts'
+export * from './assistant-stream.ts'
 export * from './message.ts'
 export * from './retry-policy.ts'
 export { BlockAssembler } from './assembler.ts'
-export { callConfigEquals, deepFreeze, isAgentLoopRequest, markAgentLoopRequest } from './call-config.ts'
+export { callConfigEquals, isAgentLoopRequest, markAgentLoopRequest } from './call-config.ts'
 export type { LlmCallConfig, LlmCallConfigAdapterDefaults } from './call-config.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -58,8 +68,8 @@ declare module '@deepseek-ai/cordis' {
      *   process-local {@link markAgentLoopRequest} identity and arrives deep-frozen
      *   (mutation throws): its content is a pure function of the session log (the
      *   reconstructability Agent Note), so listeners read it, never rewrite it.
-     *   Hand-built calls do not carry that marker; their messages already obey
-     *   the immutable creation contract.
+     *   Hand-built calls do not carry that marker; callers own their request
+     *   inputs and must keep them unchanged until the stream settles.
      * @mode waterfall
      */
     'llm/stream'(this: LlmRuntime, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
@@ -75,6 +85,8 @@ export interface LlmErrorOptions extends ErrorOptions {
   providerRetryAfterMs?: number
   /** Non-empty opaque provider request id. */
   requestId?: ProviderRequestId
+  /** Positive count of additional oldest retained image occurrences to offload; only with `IMAGE_OFFLOAD_REQUIRED`. */
+  offloadImages?: number
 }
 
 /**
@@ -113,6 +125,7 @@ export class LlmError extends HarnessError {
       ...options?.status === undefined ? {} : { status: options.status },
       ...options?.providerRetryAfterMs === undefined ? {} : { providerRetryAfterMs: options.providerRetryAfterMs },
       ...options?.requestId === undefined ? {} : { requestId: options.requestId },
+      ...options?.offloadImages === undefined ? {} : { offloadImages: options.offloadImages },
     })
   }
 }
@@ -162,6 +175,10 @@ export interface PreparedLlmCall {
   readonly context?: LlmModelContext
   /** Exact model modalities captured with the adapter dispatch generation. */
   readonly inputModalities?: readonly ModelModality[]
+  /** Exact model system prompt update mode captured with the adapter dispatch generation. */
+  readonly systemPromptUpdate?: SystemPromptUpdate
+  /** Exact model tool update mode captured with the adapter dispatch generation. */
+  readonly toolUpdate?: ToolUpdate
   /** Config fields materialized by the captured adapter rather than proposed by the caller. */
   readonly adapterDefaults: LlmCallConfigAdapterDefaults
   /**
@@ -208,9 +225,23 @@ export abstract class LlmAdapter {
   }
 
   /**
+   * Resolve provider-side request-image pricing for one exact model route.
+   * The default declares none, so consumers fall back to their own neutral
+   * estimate. Implementations must answer synchronously without I/O; the
+   * token meter resolves this per measurement.
+   * @param _provider - a route passed to `registerAdapter()` for this instance.
+   * @param _model - exact model id passed to {@link GenerateOptions.model}.
+   * @returns route-owned image pricing, or `undefined` when the route declares none.
+   */
+  imageRequestPricing(_provider: string, _model: string): LlmImageRequestPricing | undefined {
+    return undefined
+  }
+
+  /**
    * List models this adapter can currently advertise for one owned provider.
-   * The result is advisory: an adapter may accept unlisted model ids, and
-   * consumers must not turn absence into request rejection.
+   * Core routing accepts unlisted model ids; catalog-driven entry points such
+   * as the GUI may require membership. Adapters used there must advertise
+   * their available models; the base empty catalog offers no GUI selection.
    * @param _provider - one provider route owned by this adapter.
    * @returns discoverable models in adapter-preferred order.
    */
@@ -308,12 +339,12 @@ export interface DirectoryRegistrationHandle {
  * The abstract `llm` service: an adapter registry plus a streaming model-call
  * API, interceptable via the `llm/stream` waterfall.
  */
-export class LlmRuntime extends Service {
+export class LlmRuntime extends TypertRemoteService {
   private adapters = new Map<string, AdapterRegistration>()
   private directory = new Map<string, LlmConfigurableProvider>()
   private discoveries = new Map<
     string,
-    (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>
+    (request: LlmModelDiscoveryRequest, signal?: AbortSignal) => Promise<readonly LlmDiscoveredModel[]>
   >()
 
   constructor(ctx: Context) {
@@ -443,6 +474,7 @@ export class LlmRuntime extends Service {
    * Describe provider routes with a registered adapter.
    * @returns detached provider metadata in registration order.
    */
+  @Remote
   listProviders(): LlmProviderInfo[] {
     return [...this.adapters.values()].map(({ provider }) => ({ ...provider }))
   }
@@ -514,6 +546,7 @@ export class LlmRuntime extends Service {
    * List every declared configurable provider, registered or dormant.
    * @returns detached directory entries in declaration order.
    */
+  @Remote
   listConfigurableProviders(): LlmConfigurableProvider[] {
     return [...this.directory.values()].map(entry => ({ ...entry, settingsPath: [...entry.settingsPath] }))
   }
@@ -525,12 +558,15 @@ export class LlmRuntime extends Service {
    * directory, and because a provider being *added* has no route to name yet.
    * Disposed with the fiber.
    * @param settingsNs - the namespace whose profiles this discovery serves.
-   * @param discover - interrogates one endpoint; must honor `request.signal`.
+   * @param discover - interrogates one endpoint and must honor the supplied signal.
    * @returns the disposer that withdraws the offer.
    */
   registerModelDiscovery(
     settingsNs: string,
-    discover: (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>,
+    discover: (
+      request: LlmModelDiscoveryRequest,
+      signal?: AbortSignal,
+    ) => Promise<readonly LlmDiscoveredModel[]>,
   ): () => void {
     const dispose = this.ctx.effect(function* (this: LlmRuntime) {
       if (settingsNs.length === 0) {
@@ -554,11 +590,13 @@ export class LlmRuntime extends Service {
    * candidate metadata a surface may offer for adoption.
    * @param settingsNs - namespace whose registered discovery serves this draft.
    * @param request - the endpoint, protocol, and one-shot credential to use.
+   * @param signal - caller cancellation.
    * @returns the advertised models, deduplicated in endpoint order.
    */
   async discoverModels(
     settingsNs: string,
     request: LlmModelDiscoveryRequest,
+    signal?: AbortSignal,
   ): Promise<LlmDiscoveredModel[]> {
     const discover = this.discoveries.get(settingsNs)
     if (discover === undefined) {
@@ -569,7 +607,9 @@ export class LlmRuntime extends Service {
     if ((request.provider ?? '').length === 0 && (request.baseURL ?? '').length === 0) {
       throw new LlmError('model discovery needs a provider route or a baseURL', 'INVALID_DISCOVERY')
     }
-    const discovered = await discover(request)
+    const discovered = signal === undefined
+      ? await discover(request)
+      : await discover(request, signal)
     const seen = new Set<string>()
     const models: LlmDiscoveredModel[] = []
     for (const model of discovered) {
@@ -580,9 +620,39 @@ export class LlmRuntime extends Service {
         ...model.name === undefined ? {} : { name: model.name },
         ...model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow },
         ...model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens },
+        ...model.inputModalities === undefined ? {} : { inputModalities: [...model.inputModalities] },
       })
     }
     return models
+  }
+
+  /**
+   * Remote adapter for one draft provider interrogation.
+   * @param settingsNs - namespace whose registered discovery serves this draft.
+   * @param request - endpoint, protocol, and one-shot credential to use.
+   * @param signal - caller cancellation supplied by the Remote carrier.
+   * @returns advertised models in endpoint order.
+   * @throws RemoteError with `llm/model-discovery-rejected` when discovery refuses or fails.
+   */
+  @Remote('discoverModels')
+  async remoteDiscoverModels(
+    settingsNs: string,
+    request: LlmModelDiscoveryRequest,
+    signal: AbortSignal,
+  ): Promise<LlmDiscoveredModel[]> {
+    try {
+      return await this.discoverModels(settingsNs, request, signal)
+    } catch (error: unknown) {
+      throw new RemoteError(
+        'llm/model-discovery-rejected',
+        error instanceof Error ? error.message : String(error),
+        {
+          settingsNs,
+          ...request.baseURL === undefined ? {} : { baseURL: request.baseURL },
+        },
+        { cause: error },
+      )
+    }
   }
 
   /**
@@ -594,6 +664,29 @@ export class LlmRuntime extends Service {
     return this.registration(provider).retryPolicy
   }
 
+  /**
+   * Resolve provider-side request-image pricing for one exact route, or
+   * `undefined` when the provider is unregistered or declares none. Unknown
+   * providers degrade to `undefined` rather than throwing because callers
+   * price durable history whose route may no longer be mounted.
+   * @param provider - provider route named by a request header.
+   * @param model - exact model id named by the same header.
+   * @returns the owning adapter's image pricing for the route, when declared.
+   */
+  imageRequestPricing(provider: string, model: string): LlmImageRequestPricing | undefined {
+    return this.adapters.get(provider)?.adapter.imageRequestPricing(provider, model)
+  }
+
+  /**
+   * Resolve the exact text one durable file occurrence contributes to every
+   * provider request in the current execution environment.
+   * @param ref - durable verbatim file reference from model history.
+   * @returns the same deterministic handle text used at adapter dispatch.
+   */
+  fileRequestText(ref: FileAttachmentRef): string {
+    return fileHandleText(ref, this.fileReadPath(ref))
+  }
+
   /** Detach typed adapter-owned modality metadata. */
   private detachedModalities(modalities: readonly ModelModality[] | undefined): ModelModality[] | undefined {
     return modalities === undefined ? undefined : [...modalities]
@@ -601,7 +694,8 @@ export class LlmRuntime extends Service {
 
   /**
    * Discover models advertised by one registered provider. Catalog membership
-   * is advisory and never changes routing or request validation.
+   * does not constrain core routing. Catalog-driven entry points may restrict
+   * selection and submission to the advertised models.
    * @param provider - registered provider route to inspect.
    * @returns detached model metadata in adapter-preferred order.
    */
@@ -691,6 +785,22 @@ export class LlmRuntime extends Service {
     // Capability metadata rides through: an explicit modality omission is
     // negative capability downstream preflights act on (image admission).
     const inputModalities = this.detachedModalities(resolved.inputModalities)
+    // Widened: adapters derive this mode from catalog config, so the value is checked as a string.
+    const systemPromptUpdate: string | undefined = resolved.systemPromptUpdate
+    if (systemPromptUpdate !== undefined && systemPromptUpdate !== 'in-history') {
+      throw new LlmError(
+        `adapter returned invalid system prompt update mode for provider "${provider}" model "${model}"`,
+        'INVALID_MODEL_INFO',
+      )
+    }
+    // Widened for the same reason: catalog config supplies the tool update mode as text.
+    const toolUpdate: string | undefined = resolved.toolUpdate
+    if (toolUpdate !== undefined && toolUpdate !== 'in-history' && toolUpdate !== 'addition-only') {
+      throw new LlmError(
+        `adapter returned invalid tool update mode for provider "${provider}" model "${model}"`,
+        'INVALID_MODEL_INFO',
+      )
+    }
     const defaultMaxTokens = resolved.defaultMaxTokens
     if (defaultMaxTokens !== undefined
       && (!Number.isSafeInteger(defaultMaxTokens) || defaultMaxTokens <= 0)) {
@@ -707,6 +817,8 @@ export class LlmRuntime extends Service {
       ...inputModalities === undefined ? {} : { inputModalities },
       ...context === undefined ? {} : { context: { contextWindow: context.contextWindow } },
       ...defaultMaxTokens === undefined ? {} : { defaultMaxTokens },
+      ...resolved.systemPromptUpdate === undefined ? {} : { systemPromptUpdate: resolved.systemPromptUpdate },
+      ...resolved.toolUpdate === undefined ? {} : { toolUpdate: resolved.toolUpdate },
     }
     const reasoning = resolved.reasoning
     if (reasoning === undefined) return info
@@ -847,6 +959,8 @@ export class LlmRuntime extends Service {
       ...modelInfo.inputModalities === undefined
         ? {}
         : { inputModalities: Object.freeze([...modelInfo.inputModalities]) },
+      ...modelInfo.systemPromptUpdate === undefined ? {} : { systemPromptUpdate: modelInfo.systemPromptUpdate },
+      ...modelInfo.toolUpdate === undefined ? {} : { toolUpdate: modelInfo.toolUpdate },
       stream: (options: GenerateOptions): AsyncIterable<StreamChunk> => {
         if (dispatched) {
           throw new LlmError('a prepared LLM call can only be dispatched once', 'INVALID_PREPARED_CALL')
@@ -876,9 +990,10 @@ export class LlmRuntime extends Service {
 
   /** Remove replay state whose historical route is owned by another adapter. */
   private forAdapter(options: GenerateOptions, adapter: LlmAdapter): GenerateOptions {
-    const messages: Message[] = options.messages.map((message) => {
+    const messages: RequestMessage[] = options.messages.map((message) => {
+      if (message.role !== 'assistant') return message
       const source = message.source
-      if (message.role !== 'assistant' || source.kind !== 'model' || source.replayState === undefined) return message
+      if (source.replayState === undefined) return message
       if (this.adapters.get(source.provider)?.adapter === adapter) return message
       return freezeMessage({
         ...message,
@@ -888,6 +1003,26 @@ export class LlmRuntime extends Service {
     if (messages.every((message, index) => message === options.messages[index])) return options
     const filtered = { ...options, messages }
     return Object.isFrozen(options) ? deepFreeze(filtered) : filtered
+  }
+
+  /**
+   * Resolve the current execution-world read path of one durable file
+   * reference through the mounted attachment and filesystem providers.
+   */
+  private fileReadPath(ref: FileAttachmentRef): string | undefined {
+    let hostPath: string | undefined
+    try {
+      hostPath = this.ctx.get('attachments')?.fileHostPath(ref)
+    } catch {
+      // A malformed durable reference degrades this occurrence to the no-path
+      // handle instead of failing every later request over the same log.
+      return undefined
+    }
+    if (hostPath === undefined) return undefined
+    // Structural face: dsh-llm cannot depend on the filesystem package, and
+    // only this one mapping method is consumed.
+    const fs = this.ctx.get('fs') as { processPathFromHostPath(hostPath: string): string | undefined } | undefined
+    return fs?.processPathFromHostPath(hostPath)
   }
 
   /**
@@ -927,13 +1062,28 @@ export class LlmRuntime extends Service {
         : Object.isFrozen(options)
           ? deepFreeze({ ...options, ...resolvedConfig })
           : { ...options, ...resolvedConfig }
-      const projectedOptions = modelInfo.inputModalities !== undefined
+      // Files are never dispatched natively: every route receives handle text.
+      let projectedMessages: readonly RequestMessage[] = resolvedOptions.messages
+      if (projectedMessages.some(message => contentHasFile(message.content))) {
+        projectedMessages = projectFilesToText(projectedMessages, ref => this.fileReadPath(ref))
+      }
+      if (modelInfo.inputModalities !== undefined
         && !modelInfo.inputModalities.includes('image')
-        && resolvedOptions.messages.some(message => contentHasImage(message.content))
-        ? Object.isFrozen(resolvedOptions)
-          ? deepFreeze({ ...resolvedOptions, messages: projectImagesForTextModel(resolvedOptions.messages) as Message[] })
-          : { ...resolvedOptions, messages: projectImagesForTextModel(resolvedOptions.messages) as Message[] }
-        : resolvedOptions
+        && projectedMessages.some(message => contentHasImage(message.content))) {
+        projectedMessages = projectImagesForTextModel(projectedMessages)
+      }
+      // Tool changes are logged on every route; the route's declared mode selects what it receives.
+      const projectedTools = projectToolUpdates(projectedMessages, resolvedOptions.tools, modelInfo.toolUpdate, resolvedOptions.toolHistory)
+      projectedMessages = projectedTools.messages
+      let projectedOptions = resolvedOptions
+      if (projectedMessages !== resolvedOptions.messages || projectedTools.tools !== resolvedOptions.tools) {
+        projectedOptions = {
+          ...resolvedOptions,
+          messages: projectedMessages as RequestMessage[],
+          ...projectedTools.tools === undefined ? {} : { tools: projectedTools.tools as ToolSchema[] },
+        }
+        if (Object.isFrozen(resolvedOptions)) deepFreeze(projectedOptions)
+      }
       const stream = dispatch(this.forAdapter(projectedOptions, adapter))
       iterator = stream[Symbol.asyncIterator]()
     } catch (error: unknown) {

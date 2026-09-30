@@ -3,11 +3,11 @@
  * catalog supplies defaults keyed by model id, and a profile's own model
  * entries override them field by field, so a route naming a catalog provider
  * stays configuration-free while a route pi-ai has never heard of is fully
- * describable from `settings.yaml`.
+ * describable from `cordis.patch.yml`.
  *
- * Every pi-ai `Model` field the harness cannot default is required here rather
- * than at request time: an unserviceable route fails while its configuration is
- * being resolved, which is the earliest point that can name the offending key.
+ * Strict resolution rejects unserviceable models before settings writes.
+ * Deferred resolution retains their diagnostics so stored catalog drift does
+ * not prevent inspection, repair, or requests to independently valid models.
  *
  * @module dsh-llm-pi-ai/catalog
  */
@@ -20,6 +20,7 @@ import type {
   BedrockCompat,
   ChatTemplateKwargValue,
   KnownApi,
+  MistralConversationsCompat,
   Model,
   ModelCost,
   ModelThinkingLevel,
@@ -89,17 +90,19 @@ export type PiAiThinkingFormat = NonNullable<OpenAICompletionsCompat['thinkingFo
 
 /**
  * The nameable reasoning-dispatch formats, most-reached first. The `Record`
- * key type is a drift gate: a pi-ai upgrade that adds a format (0.84 added
- * `baseten`) fails compilation here until the new format is named, so the
- * offer never silently lags the upstream set. The two `chat-template` variants
- * are nameable because {@link PiAiCompatProfile.chatTemplateKwargs} carries
- * the kwargs they dispatch through.
+ * key type is a drift gate: an upstream format addition fails compilation
+ * here until it is named, so the offer never silently lags the upstream set.
+ * The two `chat-template` variants are nameable because
+ * {@link PiAiCompatProfile.chatTemplateKwargs} carries their kwargs;
+ * `baseten` is nameable because {@link PiAiCompatProfile.chatTemplateArgs}
+ * carries its arguments.
  */
 const THINKING_FORMAT_GATE: Record<PiAiThinkingFormat, true> = {
   'openai': true,
   'deepseek': true,
   'openrouter': true,
   'together': true,
+  'baseten': true,
   'zai': true,
   'qwen': true,
   'chat-template': true,
@@ -123,6 +126,19 @@ const MAX_TOKENS_FIELD_GATE: Record<PiAiMaxTokensField, true> = {
 /** The output-cap field spellings a profile may name. */
 export const MAX_TOKENS_FIELDS = Object.keys(MAX_TOKENS_FIELD_GATE) as readonly PiAiMaxTokensField[]
 
+/** The reasoning-budget field spellings pi-ai accepts. */
+export type PiAiThinkingTokenBudgetField = NonNullable<OpenAICompletionsCompat['thinkingTokenBudgetField']>
+
+/** An upstream reasoning-budget spelling must be classified before it can be configured. */
+const THINKING_TOKEN_BUDGET_FIELD_GATE: Record<PiAiThinkingTokenBudgetField, true> = {
+  thinking_token_budget: true,
+  thinking_budget: true,
+  thinking_budget_tokens: true,
+}
+
+/** The reasoning-budget field spellings a profile may name. */
+export const THINKING_TOKEN_BUDGET_FIELDS = Object.keys(THINKING_TOKEN_BUDGET_FIELD_GATE) as readonly PiAiThinkingTokenBudgetField[]
+
 /** The prompt-cache marker conventions pi-ai accepts. */
 export type PiAiCacheControlFormat = NonNullable<OpenAICompletionsCompat['cacheControlFormat']>
 
@@ -141,6 +157,7 @@ export type PiAiChatTemplateVar = Extract<ChatTemplateKwargValue, { $var: string
 const CHAT_TEMPLATE_VAR_GATE: Record<PiAiChatTemplateVar, true> = {
   'thinking.enabled': true,
   'thinking.effort': true,
+  'thinking.budget': true,
 }
 
 /** The request-state placeholders a profile may name. */
@@ -217,6 +234,7 @@ const COMPLETIONS_COMPAT_GATE = {
   supportsDeveloperRole: 'offer',
   supportsReasoningEffort: 'offer',
   supportsUsageInStreaming: 'offer',
+  supportsFinishReason: 'offer',
   maxTokensField: 'offer',
   requiresToolResultName: 'offer',
   requiresAssistantAfterToolResult: 'offer',
@@ -224,6 +242,10 @@ const COMPLETIONS_COMPAT_GATE = {
   requiresReasoningContentOnAssistantMessages: 'offer',
   thinkingFormat: 'offer',
   chatTemplateKwargs: 'offer',
+  chatTemplateArgs: 'offer',
+  supportsThinkingTokenBudget: 'offer',
+  thinkingTokenBudgetField: 'offer',
+  vllmPriority: 'offer',
   supportsStrictMode: 'offer',
   cacheControlFormat: 'offer',
   supportsLongCacheRetention: 'offer',
@@ -232,19 +254,23 @@ const COMPLETIONS_COMPAT_GATE = {
   zaiToolStream: 'withhold',
   supportsOpenAIGrammarTools: 'withhold',
   sendSessionAffinityHeaders: 'withhold',
-  deferredToolsMode: 'withhold',
+  supportsMidConvoSystemMessages: 'withhold',
+  supportsMidConvoToolAdditions: 'withhold',
   sessionAffinityFormat: 'withhold',
 } as const satisfies Record<keyof OpenAICompletionsCompat, CompatDisposition>
 
 /** Disposition of every `OpenAIResponsesCompat` field; a drift gate like the one above. */
 const RESPONSES_COMPAT_GATE = {
   supportsDeveloperRole: 'offer',
+  supportsMaxOutputTokens: 'offer',
   supportsStrictMode: 'offer',
   supportsLongCacheRetention: 'offer',
   sessionAffinityFormat: 'withhold',
   supportsOpenAIGrammarTools: 'withhold',
+  supportsAdditionalTools: 'withhold',
   supportsToolSearch: 'withhold',
   supportsExplicitPromptCacheMode: 'withhold',
+  supportsMidConvoSystemMessages: 'withhold',
 } as const satisfies Record<keyof OpenAIResponsesCompat, CompatDisposition>
 
 /** Disposition of every `AnthropicMessagesCompat` field; a drift gate like the one above. */
@@ -257,13 +283,22 @@ const ANTHROPIC_COMPAT_GATE = {
   allowEmptySignature: 'offer',
   supportsStrictTools: 'offer',
   sendSessionAffinityHeaders: 'withhold',
-  supportsToolReferences: 'withhold',
+  sessionAffinityFormat: 'withhold',
+  supportsMidConvoSystemMessages: 'withhold',
+  supportsMidConvoToolChanges: 'withhold',
+  supportsMidConvoEffort: 'withhold',
+  allowedFallbackModels: 'withhold',
 } as const satisfies Record<keyof AnthropicMessagesCompat, CompatDisposition>
 
 /** Disposition of every `BedrockCompat` field; a drift gate like the one above. */
 const BEDROCK_COMPAT_GATE = {
   supportsStrictMode: 'offer',
 } as const satisfies Record<keyof BedrockCompat, CompatDisposition>
+
+/** Disposition of every `MistralConversationsCompat` field. */
+const MISTRAL_COMPAT_GATE = {
+  supportsMidConvoSystemMessages: 'withhold',
+} as const satisfies Record<keyof MistralConversationsCompat, CompatDisposition>
 
 /**
  * Every wire protocol pi-ai gives a compat type. Derived from `Model.compat`'s
@@ -284,6 +319,7 @@ type ApiWithCompat = { [K in KnownApi]: NonNullable<Model<K>['compat']> extends 
  * models declare.
  */
 const COMPAT_GATES: Readonly<Record<ApiWithCompat, Readonly<Record<string, CompatDisposition>>>> = {
+  'mistral-conversations': MISTRAL_COMPAT_GATE,
   'openai-completions': COMPLETIONS_COMPAT_GATE,
   'openai-responses': RESPONSES_COMPAT_GATE,
   'azure-openai-responses': RESPONSES_COMPAT_GATE,
@@ -312,6 +348,8 @@ type OfferedCompatField =
   | OfferedIn<typeof RESPONSES_COMPAT_GATE>
   | OfferedIn<typeof ANTHROPIC_COMPAT_GATE>
   | OfferedIn<typeof BEDROCK_COMPAT_GATE>
+  // oxlint-disable-next-line typescript/no-redundant-type-constituents -- Include gates whose current offering is empty.
+  | OfferedIn<typeof MISTRAL_COMPAT_GATE>
 
 /**
  * pi-ai wire-compatibility switches, set on the route (its models' default) or
@@ -344,6 +382,11 @@ export interface PiAiCompatProfile {
   supportsReasoningEffort?: boolean
   /** Whether the endpoint accepts `stream_options: {include_usage: true}`; `openai-completions`. */
   supportsUsageInStreaming?: boolean
+  /**
+   * Whether streams include `finish_reason`; `false` lets pi-ai infer the
+   * terminal reason when the stream ends; `openai-completions`.
+   */
+  supportsFinishReason?: boolean
   /** Which output-cap field the endpoint reads; `openai-completions`. */
   maxTokensField?: NonNullable<OpenAICompletionsCompat['maxTokensField']>
   /** Whether tool results must carry `name`; `openai-completions`. */
@@ -364,6 +407,16 @@ export interface PiAiCompatProfile {
    * can read, so kwargs set beside another format are sent nowhere.
    */
   chatTemplateKwargs?: NonNullable<OpenAICompletionsCompat['chatTemplateKwargs']>
+  /** Arguments sent as `chat_template_args` under the `baseten` thinking format; `openai-completions`. */
+  chatTemplateArgs?: NonNullable<OpenAICompletionsCompat['chatTemplateArgs']>
+  /** Alias for `thinkingTokenBudgetField: "thinking_token_budget"`; an explicit field wins. `openai-completions`. */
+  supportsThinkingTokenBudget?: boolean
+  /** Request field carrying the reasoning budget from `thinkingBudgets`; omitted unless configured. `openai-completions`. */
+  thinkingTokenBudgetField?: PiAiThinkingTokenBudgetField
+  /** vLLM scheduler `priority`; lower runs earlier, and the server must enable priority scheduling. Omitted unless configured. */
+  vllmPriority?: number
+  /** Whether `openai-responses` accepts `max_output_tokens`; `false` omits it. Azure and Codex ignore this shared compat field. */
+  supportsMaxOutputTokens?: boolean
   /**
    * Whether the endpoint accepts `strict` in tool definitions;
    * `openai-completions`, the three Responses protocols, `bedrock-converse-stream`.
@@ -410,7 +463,7 @@ export type EveryOfferedFieldIsDocumented = AssertNever<Exclude<OfferedCompatFie
 type AssertTrue<T extends true> = T
 
 /** Every compat type a gate classifies, merged so one `Pick` reaches all offered fields. */
-type UpstreamCompat = OpenAICompletionsCompat & OpenAIResponsesCompat & AnthropicMessagesCompat & BedrockCompat
+type UpstreamCompat = OpenAICompletionsCompat & OpenAIResponsesCompat & AnthropicMessagesCompat & BedrockCompat & MistralConversationsCompat
 
 /**
  * Proof that each documented field carries its upstream type, not a hand-copied
@@ -432,10 +485,10 @@ export type EveryProfileFieldMatchesUpstream = AssertTrue<
  *
  * schemastery materializes an absent dict as `{}` — the behavior
  * `reasoningEfforts` works around with a union — so every parsed profile
- * carries a `chatTemplateKwargs` key whether or not anyone wrote one. An empty
- * one states nothing here: it would send no kwargs, which is exactly what
- * leaving the field out does, so absent and empty are the same request and
- * neither may make a route look like it configured a switch. A valueless
+ * carries both template-argument keys whether or not anyone wrote them. An
+ * empty one states nothing here: it would send no arguments, which is exactly
+ * what leaving the field out does, so absent and empty are the same request
+ * and neither may make a route look like it configured a switch. A valueless
  * scalar is the other thing schemastery lets through, and it is refused by
  * {@link assertOfferedCompatFields} before this runs rather than filtered.
  * @param compat - the configured switches, when any.
@@ -600,9 +653,12 @@ export interface RouteCatalogRequest {
   defaultInput: Model<Api>['input']
 }
 
+/** An expected configuration failure that stored-catalog reads may retain for repair. */
+export class PiAiCatalogError extends Error {}
+
 /** Report a route the deployment cannot serve, naming the settings key at fault. */
 function invalid(provider: string, detail: string): never {
-  throw new Error(`llm-pi-ai: provider "${provider}" ${detail}`)
+  throw new PiAiCatalogError(`llm-pi-ai: provider "${provider}" ${detail}`)
 }
 
 /**
@@ -701,7 +757,7 @@ function resolveModelReasoning(
 }
 
 /** The compat block a materialized model carries, whichever protocol it speaks. */
-type ModelCompat = OpenAICompletionsCompat | OpenAIResponsesCompat | AnthropicMessagesCompat | BedrockCompat
+type ModelCompat = OpenAICompletionsCompat | OpenAIResponsesCompat | AnthropicMessagesCompat | BedrockCompat | MistralConversationsCompat
 
 /**
  * Resolve one model's compat block from the profile's switches.
@@ -758,6 +814,8 @@ function resolveModelCompat(
 export interface RouteCatalog {
   /** The materialized models in configuration order. */
   models: readonly Model<Api>[]
+  /** Models that cannot be resolved, retained as diagnostics during stored-config reads. */
+  modelErrors: ReadonlyMap<string, string>
   /**
    * Per-request output caps this profile explicitly configured, by model id.
    *
@@ -777,9 +835,13 @@ export interface RouteCatalog {
  * installed catalog unchanged, which is what keeps an existing
  * `providers: { deepseek: { apiKeyEnv: … } }` profile working untouched.
  * @param request - the route-level catalog facts.
+ * @param validation - strict writes reject every error; deferred reads retain model diagnostics.
  * @returns the materialized models and the explicitly configured request caps.
  */
-export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
+export function resolveRouteModels(
+  request: RouteCatalogRequest,
+  validation: 'strict' | 'deferred' = 'strict',
+): RouteCatalog {
   const { provider } = request
   const defaults = catalogModels(provider)
   const providerBaseUrl = catalogProvider(provider)?.baseUrl
@@ -788,8 +850,9 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
   // serve no request anyway, so both mean "serve the installed catalog".
   const configured = request.models ?? []
   const overrides = request.modelOverrides ?? {}
-  // Every miss is refused, never skipped: an override that lands nowhere is a
-  // typo someone would otherwise hunt for in a silently unchanged model.
+  const modelErrors = new Map<string, string>()
+  // Writes reject missing referents. Stored overrides retain a diagnostic
+  // after catalog removal rather than silently disappearing.
   for (const [id, override] of Object.entries(overrides)) {
     if (id.length === 0) invalid(provider, 'has a modelOverrides entry with an empty model id')
     if (defaults.size === 0) {
@@ -801,7 +864,9 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
         + ' catalog, so declare the fields on its entries')
     }
     if (!defaults.has(id)) {
-      invalid(provider, `modelOverrides names "${id}", which the installed catalog does not describe`)
+      const message = `modelOverrides names "${id}", which the installed catalog does not describe`
+      if (validation === 'strict') invalid(provider, message)
+      modelErrors.set(id, `llm-pi-ai: provider "${provider}" ${message}`)
     }
     // The id lives in the dict key; a value carrying its own would quietly
     // rename the model it meant to customize. The static shape already omits
@@ -825,12 +890,10 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
   // wherever it is written, so it cannot look applied on a route whose models
   // never reach the protocol that would have taken it.
   assertOfferedCompatFields(provider, 'route', request.compat)
-  for (const entry of entries) {
-    assertOfferedCompatFields(provider, `model "${entry.id}"`, entry.compat)
-  }
   const seen = new Set<string>()
   const configuredMaxTokens = new Map<string, number>()
-  const models = entries.map((entry) => {
+  const resolveEntry = (entry: PiAiModelProfile): Model<Api> => {
+    assertOfferedCompatFields(provider, `model "${entry.id}"`, entry.compat)
     if (entry.id.length === 0) invalid(provider, 'has a model with an empty id')
     if (seen.has(entry.id)) invalid(provider, `lists model "${entry.id}" more than once`)
     seen.add(entry.id)
@@ -878,16 +941,30 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
       ...resolveModelReasoning(provider, entry, base),
       ...resolveModelCompat(provider, entry, request.compat, base, api),
     }
-  })
+  }
+  const models: Model<Api>[] = []
+  for (const entry of entries) {
+    let model: Model<Api>
+    try {
+      model = resolveEntry(entry)
+    } catch (error) {
+      if (validation === 'strict' || !(error instanceof PiAiCatalogError)) throw error
+      modelErrors.set(entry.id, error.message)
+      continue
+    }
+    models.push(model)
+  }
+  // A later duplicate invalidates the id, including an earlier resolved entry.
+  const serviceableModels = models.filter(model => !modelErrors.has(model.id))
   // Per field, not per block: a route may default a switch its completions
   // models take beside one only its anthropic models do, and neither should
   // fail for the other's sake. What is refused is a route default no model on
   // the route could ever read, which is a route that will not behave as written.
   for (const [field] of configuredCompatEntries(request.compat)) {
     const takers = compatProtocols(field)
-    if (models.some(model => takers.includes(model.api))) continue
+    if (serviceableModels.some(model => takers.includes(model.api))) continue
     invalid(provider, `sets compat "${field}", but no model on the route speaks a protocol that takes it;`
       + ` it exists on ${takers.join(', ')}`)
   }
-  return { models, configuredMaxTokens }
+  return { models: serviceableModels, configuredMaxTokens, modelErrors }
 }

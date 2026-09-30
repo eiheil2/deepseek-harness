@@ -24,6 +24,9 @@
       "path": "../../attachment/attachment"
     },
     {
+      "path": "../../fs/fs"
+    },
+    {
       "path": "../../util/atomic-write"
     },
     {
@@ -33,22 +36,25 @@
       "path": "../../util/home-paths"
     },
     {
-      "path": "../../credentials/credentials"
+      "path": "../deepseek-llm-api-extensions"
     },
     {
       "path": "../../util/launch-environment"
-    },
-    {
-      "path": "../../settings/settings"
-    },
-    {
-      "path": "../../runtime-diagnostics/invariants"
     },
     {
       "path": "../../util/timeout"
     },
     {
       "path": "../../identity/anonymous-user-id"
+    },
+    {
+      "path": "../../util/http-proxy"
+    },
+    {
+      "path": "../../../vendor/loader"
+    },
+    {
+      "path": "../../settings/settings"
     }
   ]
 }
